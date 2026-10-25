@@ -26,6 +26,9 @@ charts/*.png
 # Eval run outputs
 eval/results/
 
+# Workflow / script outputs
+output/
+
 # OS / editor
 .DS_Store
 .idea/

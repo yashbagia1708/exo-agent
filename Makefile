@@ -7,7 +7,7 @@ PORT   ?= 8420
 
 .DEFAULT_GOAL := help
 .PHONY: help demo setup db-up db-down db-reset download-data load-data load-wiki \
-        models serve test lint format eval clean
+        models serve test test-db lint format eval clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -59,6 +59,9 @@ serve:  ## Run the demo UI (http://localhost:8420, override with PORT=)
 
 test:  ## Run the deterministic test suite (no LLM or database needed)
 	$(BIN)/pytest -q
+
+test-db:  ## Checks against the loaded database (needs make db-up load-data, and Ollama)
+	REQUIRE_DB=1 $(BIN)/pytest -q tests/integration
 
 lint:  ## Check style and imports
 	$(BIN)/ruff check .

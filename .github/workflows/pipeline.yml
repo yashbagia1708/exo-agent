@@ -1,0 +1,72 @@
+# On pushes to main and every PR: load the real NASA data into a real Postgres (pgvector)
+# with Ollama embeddings, re-load it to prove the loaders can be re-run,
+# then check the data and the agent's database tools against it.
+# No chat model is needed; the data-quality notes and counts are attached
+# to the run as downloadable artifacts.
+name: pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  load-and-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: exoagent
+          POSTGRES_USER: exoagent
+          POSTGRES_PASSWORD: exoagent
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U exoagent -d exoagent"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      ollama:
+        image: ollama/ollama:0.30.10
+        ports: ["11434:11434"]
+    env:
+      PROVIDER: ollama
+      DB_DSN: dbname=exoagent user=exoagent password=exoagent host=localhost port=5432
+      OLLAMA_BASE_URL: http://localhost:11434/v1
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install, download and load (planets + wiki corpus)
+        uses: ./.github/actions/load-data
+
+      - name: Re-run both loaders (counts must not change)
+        run: |
+          mkdir -p output
+          python scripts/db_counts.py | tee output/counts_first_load.json
+          python data/load_to_postgres.py > /dev/null
+          python data/load_wiki_to_postgres.py > /dev/null
+          python scripts/db_counts.py | tee output/counts_second_load.json
+          diff output/counts_first_load.json output/counts_second_load.json
+
+      - name: Database checks (search, entity matching, 0-row filter check, NULLS LAST)
+        run: pytest -q tests/integration --junitxml=output/integration.xml
+        env:
+          REQUIRE_DB: "1"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Data loaded"
+            echo '```json'
+            cat output/counts_second_load.json 2>/dev/null || echo "load failed"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: pipeline-outputs
+          path: |
+            output/
+            data/data_quality_notes.md
