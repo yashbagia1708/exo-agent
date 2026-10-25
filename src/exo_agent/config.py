@@ -40,12 +40,12 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
 # --- Database ----------------------------------------------------------------
 
-# Generic placeholder default -- set the real DB_DSN in your own .env
+# Default matches the Docker Postgres from `make db-up` -- override DB_DSN in .env
 # (never commit real credentials), pointed at the single database that
 # has planets, host_stars, and wiki_chunks all together.
 DB_DSN = os.getenv(
     "DB_DSN",
-    "dbname=exoagent user=exoagent password=exoagent host=localhost port=5432",
+    "dbname=exoagent user=exoagent password=exoagent host=localhost port=5433",
 )
 
 # --- Agent behavior ------------------------------------------------------------
