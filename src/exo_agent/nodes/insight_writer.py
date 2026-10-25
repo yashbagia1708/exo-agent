@@ -1,26 +1,18 @@
 """
-The insight-writer node: takes the original question, optional SQL query
-results, and optional retrieved passages, and writes a plain-English
-answer that keeps the two source types clearly distinguished.
+Insight writer: SQL rows and/or Wikipedia passages -> short answer + caveat + sources.
 
-This is the last node in the pipeline and the only one that talks
-directly to the human, which makes it the one most tempted to sound
-confident about things the data doesn't actually support. The system
-prompt is deliberately strict about this: every NUMBER must trace back to
-a SQL result; every CONCEPTUAL claim (how something works, what a term
-means) must trace back to a retrieved passage. Blending the two without
-distinction -- e.g. stating a retrieved fact as if it were a database
-number, or vice versa -- is exactly the kind of grounding failure this
-project is designed to prevent, extended here to a second source type.
+This is what the user actually reads, so the prompt is strict:
+  - numbers only from SQL rows
+  - concepts only from retrieved passages, never from memory
+  - if the data doesn't measure what was asked, say so in the caveat
+    (surface temp vs pl_eqt, radial velocity as a method not a value)
 """
 
 from exo_agent import config
 from exo_agent.providers.factory import get_client
 from exo_agent.schemas import Insight
 
-# Real units/meaning for columns this node might be asked to narrate.
-# Passed into the prompt explicitly so the model never has to guess or
-# invent a unit.
+# Units go in the prompt so the model never has to guess one (it once wrote Celsius)
 COLUMN_CONTEXT = """
 Column reference (use these exact units -- never invent or convert a unit
 that isn't listed here):
@@ -114,21 +106,10 @@ def write_insight(
     retrieved_chunks: list | None = None,
 ) -> Insight:
     """
-    Given the original question and real SQL rows and/or retrieved
-    chunks, return a grounded Insight that keeps the two source types
-    distinguished.
+    rows: SQL results (empty if no SQL ran)
+    retrieved_chunks: RetrievedChunks from hybrid_search (empty if no retrieval ran)
 
-    rows: SQL query results, or None/empty if no SQL was run for this
-          question (a pure retrieval/conceptual question).
-    retrieved_chunks: list of RetrievedChunk objects from
-          exo_agent.retrieval.hybrid_search(), or None if no retrieval
-          was needed for this question (a pure data question).
-
-    At least one of rows or retrieved_chunks should be provided in
-    practice -- the planner decides which tool(s) ran -- but this
-    function doesn't enforce that itself, since "neither tool returned
-    anything useful" is a legitimate state the prompt already handles
-    (it will say so plainly rather than guessing).
+    Both empty is allowed; the prompt makes the model say it found nothing.
     """
     client = get_client()
     rows = rows or []
@@ -175,9 +156,7 @@ def write_insight(
 
 
 if __name__ == "__main__":
-    # Manual tests covering: a normal grounded SQL answer, a proxy-
-    # limitation case, an empty-results case, and the new retrieval-only
-    # and hybrid (both) cases -- no DB needed, synthetic data only.
+    # fake data, no DB: plain count, proxy column (needs a caveat), empty result, retrieval only
     from dataclasses import dataclass
 
     @dataclass

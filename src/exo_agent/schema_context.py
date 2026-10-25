@@ -1,11 +1,8 @@
 """
-Human-readable description of the real database schema, handed to the LLM
-as context before it writes any SQL. This is what stops the agent from
-inventing plausible-sounding columns that don't exist (e.g. a fictional
-"surface_temperature" column) -- it can only reference what's actually here.
+The schema as the SQL writer sees it, plus the gotchas we've hit (see FINDINGS.md).
 
-Source of truth: the CREATE TABLE statements in data/load_to_postgres.py.
-If that schema changes, update this description to match.
+Keeps the model from inventing columns like surface_temperature.
+Mirrors the CREATE TABLEs in data/load_to_postgres.py; update both together.
 """
 
 SCHEMA_DESCRIPTION = """

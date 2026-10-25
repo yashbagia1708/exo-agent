@@ -1,18 +1,12 @@
 """
-The chart-generator node: takes a ChartSpec (the decision) and the actual
-query result rows, and renders a real PNG chart with matplotlib.
-
-This node makes no LLM calls -- the decision of *what* to chart already
-happened in chart_decider.py. This is pure, deterministic rendering code,
-which is exactly what it should be: there's no reason to spend a model
-call drawing a bar chart once we already know we want one.
+Chart generator: ChartSpec + rows -> PNG in charts/. Plain matplotlib, no LLM.
 """
 
 import pathlib
 
 import matplotlib
 
-matplotlib.use("Agg")  # headless backend, no display needed -- we just save PNGs
+matplotlib.use("Agg")  # no display; we only save files
 import matplotlib.pyplot as plt
 
 from exo_agent.schemas import ChartSpec
@@ -22,12 +16,8 @@ OUTPUT_DIR = pathlib.Path(__file__).parent.parent.parent.parent / "charts"
 
 def generate_chart(spec: ChartSpec, rows: list[dict], filename: str = "chart.png") -> pathlib.Path | None:
     """
-    Render a chart per spec from the given rows, save as PNG, return the
-    path. Returns None if spec.chart_type is "none" -- nothing to render.
-
-    Raises ValueError if chart_type isn't "none" but x_field/y_field are
-    missing or aren't present in the rows (a contract violation from the
-    decider that's worth surfacing loudly rather than silently skipping).
+    Save the chart and return its path, or None for chart_type "none".
+    Raises ValueError if the decider named axes that aren't in the rows.
     """
     if spec.chart_type == "none":
         return None
@@ -78,7 +68,7 @@ def generate_chart(spec: ChartSpec, rows: list[dict], filename: str = "chart.png
 
 
 if __name__ == "__main__":
-    # Manual test -- renders a real PNG from synthetic data, no DB needed
+    # renders charts/test_chart.png from fake data, no DB needed
     from exo_agent.schemas import ChartSpec
 
     spec = ChartSpec(
@@ -94,7 +84,7 @@ if __name__ == "__main__":
     print(f"File exists: {path.exists() if path else 'N/A'}")
     print(f"File size: {path.stat().st_size if path else 'N/A'} bytes")
 
-    # Also test the "none" path
+    # "none" should render nothing
     none_spec = ChartSpec(chart_type="none")
     result = generate_chart(none_spec, rows)
     print(f"\n'none' chart_type returns: {result}")

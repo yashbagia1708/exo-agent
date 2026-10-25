@@ -1,33 +1,22 @@
 """
-Central configuration for exo-agent.
+Settings, read from the environment (.env).
 
-Defaults to Ollama (free, local) so the project runs at zero cost out of
-the box. Switch providers with a single environment variable -- no code
-changes anywhere else in the agent.
-
-Usage:
-    PROVIDER=ollama python3 run_agent.py "..."          # default, free
-    PROVIDER=anthropic python3 run_agent.py "..."        # needs ANTHROPIC_API_KEY
-    PROVIDER=openai python3 run_agent.py "..."            # needs OPENAI_API_KEY
+    PROVIDER=ollama      local and free (default)
+    PROVIDER=anthropic   needs ANTHROPIC_API_KEY
+    PROVIDER=openai      needs OPENAI_API_KEY
 """
 
 import os
 
 from dotenv import load_dotenv
 
-load_dotenv()  # reads a local .env file if present, without overriding real env vars
+load_dotenv()  # .env never overrides variables already set in the shell
 
-# --- Provider selection -----------------------------------------------------
-
+# ------------------------------------------------------------------ provider
 PROVIDER = os.getenv("PROVIDER", "ollama").lower()
 
-# Sensible default model per provider. Override with MODEL env var if you
-# want a different one (e.g. a smaller/larger Ollama model, or
-# claude-haiku-4-5 instead of claude-sonnet-4-6 for cheaper test runs).
-#
-# qwen2.5-coder:14b is the Ollama default: a code-specialized model
-# outperforms general-purpose models of similar size on SQL generation
-# and structured-output tasks.
+# Default model per provider; override with MODEL=...
+# qwen2.5-coder beat llama3.1:8b on our SQL questions (see FINDINGS.md)
 DEFAULT_MODELS = {
     "ollama": "qwen2.5-coder:14b",
     "anthropic": "claude-sonnet-4-6",
@@ -38,22 +27,18 @@ MODEL = os.getenv("MODEL", DEFAULT_MODELS.get(PROVIDER, ""))
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
-# --- Database ----------------------------------------------------------------
-
-# Default matches the Docker Postgres from `make db-up` -- override DB_DSN in .env
-# (never commit real credentials), pointed at the single database that
-# has planets, host_stars, and wiki_chunks all together.
+# ------------------------------------------------------------------ database
+# Default is the Docker Postgres from `make db-up`. One database holds
+# planets, host_stars and wiki_chunks.
 DB_DSN = os.getenv(
     "DB_DSN",
     "dbname=exoagent user=exoagent password=exoagent host=localhost port=5433",
 )
 
-# --- Agent behavior ------------------------------------------------------------
-
+# ------------------------------------------------------------------ agent
 MAX_SQL_REPAIR_ATTEMPTS = int(os.getenv("MAX_SQL_REPAIR_ATTEMPTS", "2"))
 
-# --- Validation ---------------------------------------------------------------
-
+# ------------------------------------------------------------------ fail fast on bad config
 SUPPORTED_PROVIDERS = {"ollama", "anthropic", "openai"}
 
 if PROVIDER not in SUPPORTED_PROVIDERS:
@@ -73,6 +58,6 @@ if PROVIDER == "openai" and not os.getenv("OPENAI_API_KEY"):
 
 
 def describe() -> str:
-    """Human-readable summary of the active config, useful for logging/demos."""
+    """'provider=ollama model=qwen2.5-coder:14b (free, local)'"""
     cost_note = "free, local" if PROVIDER == "ollama" else "paid API"
     return f"provider={PROVIDER} model={MODEL} ({cost_note})"
