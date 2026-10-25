@@ -1,14 +1,9 @@
 """
-The chart-decider node: given the original question and the *actual*
-query results (not just the question text), decides whether a chart is
-warranted and, if so, what type and which fields map to which axis.
+Chart decider: look at the actual result, then pick none/line/bar/scatter.
 
-This is deliberately a second, more-informed decision than the SQL
-writer's initial `needs_chart` guess. The writer only sees the question
-text before any data exists; this node sees real column names, row
-count, and data types -- so it can override an initial guess if the
-actual shape doesn't support it (e.g. a single-row result can't sensibly
-be a line chart, even if the question sounded like it wanted a trend).
+The SQL writer guessed needs_chart from the question alone. This runs
+after the query, so it can see the real shape, e.g. a "trend" question
+that came back as one row gets no chart.
 """
 
 from exo_agent import config
@@ -46,14 +41,7 @@ Decide the chart type and field mapping.
 
 
 def decide_chart(question: str, columns: list[str], rows: list[dict]) -> ChartSpec:
-    """
-    Given the question and actual result data, return a ChartSpec.
-
-    Always returns a ChartSpec, even on the "no chart needed" path
-    (chart_type="none"). Sampling is capped at 5 rows in the prompt --
-    we don't need the whole result set to judge shape, just enough to
-    see the pattern.
-    """
+    """Always returns a ChartSpec ("none" if no chart). 5 sample rows is enough to judge shape."""
     client = get_client()
 
     result = client.chat.completions.create(
@@ -76,7 +64,7 @@ def decide_chart(question: str, columns: list[str], rows: list[dict]) -> ChartSp
 
 
 if __name__ == "__main__":
-    # Manual test with synthetic data shapes -- no DB needed for this check
+    # synthetic shapes, no DB needed: trend -> line, single count -> none, categories -> bar
     cases = [
         {
             "question": "How has the rate of new exoplanet discoveries changed by year since 2000?",

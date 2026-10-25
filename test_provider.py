@@ -1,12 +1,6 @@
 """
-Smoke test for the provider layer.
+Smoke test: can the configured provider return a validated Pydantic object?
 
-Proves two things before we build any real agent logic on top:
-  1. instructor + the configured provider can return a validated
-     Pydantic object (not just free text)
-  2. swapping PROVIDER env var changes who answers, with zero code changes
-
-Run it like:
     PROVIDER=ollama python3 test_provider.py
     PROVIDER=anthropic python3 test_provider.py
 """

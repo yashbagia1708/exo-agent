@@ -1,20 +1,9 @@
 """
-Lightweight, dependency-free validation of LLM-generated SQL, run *before*
-anything touches Postgres.
+Cheap checks on model-written SQL before it reaches Postgres.
 
-This deliberately does NOT try to be a full SQL parser -- that's a deep
-rabbit hole (see: every "is this SQL syntactically valid" library ever
-written) and not the point of this project. Instead it catches the
-specific, common failure modes seen in practice with small local models:
-
-  - truncated output (a CTE or statement that never finishes)
-  - obviously unbalanced parentheses/quotes
-  - non-SELECT statements (safety: we never want INSERT/UPDATE/DELETE/DROP)
-  - empty or near-empty output
-
-Anything that passes these checks still goes through real execution next,
-where Postgres's own parser is the actual source of truth. This is a fast
-first filter, not a guarantee of correctness.
+Not a parser. Catches what small local models actually get wrong:
+empty output, truncated CTEs, unbalanced brackets/quotes, and anything
+that isn't a read-only SELECT. Postgres still has the final say.
 """
 
 import re
@@ -38,21 +27,20 @@ def validate_sql(sql: str) -> ValidationResult:
     if not stripped:
         return ValidationResult(False, "SQL is empty.")
 
-    # Must start with SELECT or WITH (for CTEs that end in a SELECT)
+    # read-only: SELECT, or WITH ... SELECT
     first_word = stripped.split(None, 1)[0].upper()
     if first_word not in ("SELECT", "WITH"):
         return ValidationResult(
             False, f"Query must start with SELECT or WITH, got '{first_word}'."
         )
 
-    # Forbidden statement types anywhere in the query (defense in depth --
-    # even inside a CTE or subquery, these should never appear)
+    # no writes anywhere, including inside a CTE (whole words only: 'created' is fine)
     upper = stripped.upper()
     for kw in FORBIDDEN_KEYWORDS:
         if re.search(rf"\b{kw}\b", upper):
             return ValidationResult(False, f"Query contains forbidden keyword '{kw}'.")
 
-    # Balanced parentheses -- catches truncated CTEs/subqueries
+    # unbalanced brackets usually means the model stopped mid-query
     if stripped.count("(") != stripped.count(")"):
         return ValidationResult(
             False,
@@ -60,16 +48,12 @@ def validate_sql(sql: str) -> ValidationResult:
             f"{stripped.count(')')} close. The query is likely incomplete.",
         )
 
-    # Balanced single quotes (rough check -- doesn't handle escaped quotes,
-    # but catches the common truncation case)
+    # rough: ignores escaped quotes, but catches a cut-off string literal
     if stripped.count("'") % 2 != 0:
         return ValidationResult(False, "Unbalanced single quotes; query is likely incomplete.")
 
-    # A WITH (CTE) query must contain a final SELECT after its CTE definitions,
-    # not just trail off after the last comma-separated CTE.
+    # WITH a AS (...), b AS (...),   <- seen for real: CTEs with no final SELECT
     if first_word == "WITH":
-        # crude but effective: a CTE block trailing in a comma with nothing
-        # meaningful after it is the exact truncation pattern we saw in testing
         if stripped.rstrip().endswith(","):
             return ValidationResult(
                 False,
@@ -88,7 +72,7 @@ def validate_sql(sql: str) -> ValidationResult:
 
 
 if __name__ == "__main__":
-    # Manual smoke tests, including the exact truncated query we saw for real
+    # quick manual check; the second query is the real truncated one
     test_cases = [
         "SELECT COUNT(*) FROM planets;",
         "WITH yearly_discoveries AS (SELECT hostname, disc_year, COUNT(*) as num_discovered FROM planets GROUP BY hostname, disc_year),",

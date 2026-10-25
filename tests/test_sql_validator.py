@@ -1,10 +1,4 @@
-"""
-Unit tests for the pre-execution SQL filter in exo_agent.sql_validator.
-
-These are deterministic (no LLM, no database), so they run in CI on every
-push. The truncated-CTE case is the real failure seen from a small local
-model -- see the smoke tests at the bottom of sql_validator.py.
-"""
+"""Unit tests for sql_validator. No model or database needed: `pytest -q`."""
 
 import pytest
 
@@ -55,6 +49,6 @@ def test_rejects_truncated_cte_seen_in_practice():
 
 
 def test_forbidden_keyword_must_be_a_whole_word():
-    # "updated_at" / "created" contain UPDATE / CREATE as substrings but are fine
+    # 'created' contains CREATE, 'updated_at' contains UPDATE; both are fine
     result = validate_sql("SELECT pl_name AS created, disc_year AS updated_at FROM planets")
     assert result.is_valid, result.error

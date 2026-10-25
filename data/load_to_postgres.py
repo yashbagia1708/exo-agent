@@ -1,27 +1,16 @@
 """
-Load the raw NASA Exoplanet Archive CSV into a two-table Postgres schema:
-  - host_stars: one row per unique host star (aggregated from planet rows)
-  - planets:    one row per confirmed planet, FK -> host_stars.hostname
+Load data/raw_pscomppars.csv into Postgres as two tables:
 
-Why two tables instead of one flat table:
-  The source CSV has one row per *planet*, but stellar properties
-  (temperature, mass, radius, etc.) belong to the *host star* and are
-  repeated across every planet in a multi-planet system. Splitting this
-  out removes that redundancy and gives the agent a real join to perform —
-  which is also a more realistic mirror of how this data is actually
-  modeled (see NASA's own "Stellar Hosts" table, which makes the same
-  separation: https://exoplanetarchive.ipac.caltech.edu/docs/data.html).
+    host_stars  one row per star (star columns averaged over its planet rows)
+    planets     one row per planet, hostname -> host_stars
 
-Known data-quality caveat (see data/data_quality_notes.md for detail):
-  PSCompPars pulls each parameter from whichever literature reference best
-  satisfies NASA's own resolution rules, on a per-PARAMETER basis -- not
-  per-planet or per-star. This means two planets sharing the same host
-  star can show slightly different values for the same stellar parameter
-  (e.g. a different st_mass for two planets around Kepler-80) because that
-  parameter happened to be filled in from different references for each
-  row. This is a documented property of PSCompPars, not a bug in this
-  loader. We resolve it by averaging numeric stellar fields across all of
-  a host's planet rows and logging how often disagreement occurs.
+    python3 data/load_to_postgres.py     (drops and recreates both tables)
+
+The CSV repeats each star's properties on every one of its planets, and
+those copies don't always agree: PSCompPars picks the best literature
+value per parameter, per row, so two planets of Kepler-80 can list
+different star masses. We average them and write how often it happens to
+data/data_quality_notes.md.
 """
 
 import csv
@@ -37,21 +26,21 @@ from exo_agent import config
 DATA_PATH = pathlib.Path(__file__).parent / "raw_pscomppars.csv"
 NOTES_PATH = pathlib.Path(__file__).parent / "data_quality_notes.md"
 
-# Stellar (host-level) numeric fields -> averaged across a host's planet rows
+# star numbers -> averaged across the star's planet rows
 STAR_NUMERIC_FIELDS = ["st_teff", "st_rad", "st_mass", "st_met", "sy_dist"]
-# Stellar categorical field -> most common non-null value
+# star category -> most common non-null value
 STAR_CATEGORICAL_FIELDS = ["st_spectype"]
-# Stellar fields that should already agree across all rows for a host (no aggregation, just verify)
+# should be identical on every row for a star; we just check
 STAR_CONSISTENT_FIELDS = ["sy_snum", "sy_pnum"]
 
-# Planet-level fields, kept exactly as-is, one row per planet
+# planet columns, copied as-is
 PLANET_FIELDS = [
     "pl_name", "hostname", "discoverymethod", "disc_year", "disc_facility",
     "pl_orbper", "pl_rade", "pl_bmasse", "pl_eqt", "pl_orbeccen", "pl_insol",
     "tran_flag",
 ]
 
-DB_DSN = config.DB_DSN  # from .env, shared with the agent
+DB_DSN = config.DB_DSN  # same database as the agent (.env)
 
 SCHEMA_SQL = """
 DROP TABLE IF EXISTS planets;
@@ -118,18 +107,18 @@ def load_rows():
 
 
 def build_host_stars(rows):
-    """Aggregate stellar fields per unique hostname. Returns (host_records, conflict_log)."""
+    """Planet rows -> one record per hostname, plus a count of disagreeing fields."""
     by_host = defaultdict(list)
     for row in rows:
         by_host[row["hostname"]].append(row)
 
     host_records = []
-    conflict_counts = Counter()  # field -> number of hosts with disagreement
+    conflict_counts = Counter()  # field -> how many stars disagree on it
 
     for hostname, host_rows in by_host.items():
         record = {"hostname": hostname}
 
-        # Numeric fields: average non-null values, log disagreement
+        # numbers: average the non-null values, note if they differ
         for field in STAR_NUMERIC_FIELDS:
             values = [to_float_or_none(r[field]) for r in host_rows]
             non_null = [v for v in values if v is not None]
@@ -141,7 +130,7 @@ def build_host_stars(rows):
                 conflict_counts[field] += 1
             record[field] = round(statistics.mean(non_null), 4)
 
-        # Categorical: most common non-null value
+        # categories: most common non-null value
         for field in STAR_CATEGORICAL_FIELDS:
             values = [r[field] for r in host_rows if r[field]]
             if not values:
@@ -152,7 +141,7 @@ def build_host_stars(rows):
                 conflict_counts[field] += 1
             record[field] = Counter(values).most_common(1)[0][0]
 
-        # Consistent fields: should already agree; take first, but log if not
+        # should already agree: take the first, note if not
         for field in STAR_CONSISTENT_FIELDS:
             values = [to_int_or_none(r[field]) for r in host_rows if r[field]]
             if not values:

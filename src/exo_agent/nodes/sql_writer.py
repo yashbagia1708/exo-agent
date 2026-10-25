@@ -1,27 +1,12 @@
 """
-The SQL-writer node: takes a natural-language question and produces a
-single, schema-grounded, validated SELECT statement.
+SQL writer: question -> one validated SELECT.
 
-This node never invents column names -- it's given the real schema as
-context (schema_context.py) and constrained to return a validated SQLQuery
-object via instructor, so the LLM cannot return prose instead of a query.
+    1. look up any named planet/star first (entity_resolver), so
+       "Proxima Centauri b" becomes the stored "Proxima Cen b"
+    2. ask the model for SQL, given the real schema (schema_context)
+    3. run sql_validator; on failure, send the error back and retry
 
-It also runs every generated query through a lightweight syntax validator
-(sql_validator.py) before returning it. If validation fails -- e.g. a
-truncated CTE, unbalanced parens, a forbidden statement type -- the error
-is fed back to the model and it gets another attempt, up to
-config.MAX_SQL_REPAIR_ATTEMPTS times. This is the first half of the
-project's tool-call repair loop; the second half (handling real Postgres
-execution errors) lives in the executor node.
-
-Before writing SQL, this node also calls entity_resolver.py: if the
-question mentions a specific named planet or star, that name is resolved
-against the real database via deterministic trigram similarity rather
-than left for the model to guess. Catalogue names are often abbreviated
-or formatted differently than common usage, so handing the model an
-exact-match instruction alone isn't enough -- it still has to choose the
-right substring to search for. Resolving the name first and passing the
-confirmed value directly removes that guess entirely.
+Execution errors are handled later, in executor.py.
 """
 
 from exo_agent import config
@@ -78,7 +63,7 @@ problem and still answers the original question: "{question}"
 
 
 def _build_entity_context_text(resolved) -> str:
-    """Format an already-resolved entity (or None) into prompt text."""
+    """ResolvedEntity (or None) -> the entity section of the prompt."""
     if resolved is None:
         return ""
 
@@ -95,27 +80,14 @@ def _build_entity_context_text(resolved) -> str:
 
 def write_sql(question: str, max_attempts: int | None = None, resolved_entity=None) -> SQLQuery:
     """
-    Given a natural-language question, return a validated SQLQuery whose
-    .sql field has passed syntax validation (not yet real execution --
-    that happens in the executor node).
+    Return a SQLQuery that passed validation (not yet executed).
 
-    resolved_entity: an already-computed ResolvedEntity (from
-    entity_resolver.resolve_entity()), or None. If not provided, this
-    function resolves it itself -- callers that need to SEE the
-    resolution result separately (e.g. graph.py, to show it in a trace)
-    should call resolve_entity() themselves first and pass it in here,
-    so the lookup isn't run twice.
-
-    Retries up to max_attempts times (default: config.MAX_SQL_REPAIR_ATTEMPTS)
-    if generated SQL fails validation, feeding the validator's error back
-    to the model each time.
-
-    Raises RuntimeError if the model can't produce valid SQL within the
-    attempt budget. Raises whatever the underlying client raises on a
-    hard failure (e.g. the provider being unreachable).
+    Pass resolved_entity if you already looked it up (graph.py does, to
+    show it in the trace); otherwise it's resolved here. Raises
+    RuntimeError if no valid SQL comes back within max_attempts.
     """
     if max_attempts is None:
-        max_attempts = config.MAX_SQL_REPAIR_ATTEMPTS + 1  # +1 for the initial attempt
+        max_attempts = config.MAX_SQL_REPAIR_ATTEMPTS + 1  # first try + repairs
 
     client = get_client()
     schema = get_schema_context()
@@ -183,8 +155,7 @@ def write_sql(question: str, max_attempts: int | None = None, resolved_entity=No
 
 
 if __name__ == "__main__":
-    # Quick manual test -- not part of the eval suite, just a sanity check
-    # you can run directly: python3 -m exo_agent.nodes.sql_writer "<question>"
+    # python3 -m exo_agent.nodes.sql_writer "question"
     import sys
 
     question = sys.argv[1] if len(sys.argv) > 1 else "How many confirmed exoplanets are there?"

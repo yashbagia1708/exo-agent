@@ -1,7 +1,8 @@
 """
-Pydantic models used as `response_model` in every instructor-wrapped LLM
-call across the agent graph. Keeping them in one file means every node
-imports from the same contract -- no node invents its own ad-hoc shape.
+Shapes the model must return (instructor `response_model`s), all in one place.
+
+Careful: class docstrings and Field descriptions here are sent to the
+model as part of the schema, so they're effectively prompt text.
 """
 
 from typing import Literal, Optional

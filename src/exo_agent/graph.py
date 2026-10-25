@@ -1,44 +1,19 @@
 """
-The actual agent graph: decomposes the input into 1-N independent
-sub-questions, runs each sub-question through its own SQL/retrieval/
-insight pipeline, and synthesizes one final answer.
+The agent graph.
 
-Flow:
-    decomposer ──► runs each sub-question's pipeline in sequence
-                       │
-                       ├─ sub-question 1: [sql_writer→executor→chart_decider→chart_generator] + [retriever] → insight
-                       ├─ sub-question 2: ...
-                       └─ sub-question N: ...
-                       │
-                       v
-                 synthesizer ──► stitches the sub-answers, caveats and
-                                  sources together verbatim (no LLM call),
-                                  or passes a single sub-answer straight
-                                  through
+    question
+      -> decomposer        split into sub-questions, route each to SQL and/or retrieval
+      -> for each sub-question, the inner graph:
+           sql_writer -> executor -> chart_decider -> [chart_generator]
+           retriever                (in parallel with the SQL branch if both are needed)
+           -> insight_writer        grounded sub-answer + caveat + sources
+      -> synthesizer       paste the sub-answers together (no LLM call)
 
-A message joining two unrelated asks with "and" (e.g. "list X, and tell
-me Y") is two independent questions, not one question with two
-conditions -- fusing them into a single SQL query would silently answer
-neither part correctly. Most real questions still decompose to exactly
-one sub-question, and synthesis never calls the LLM, so the only extra
-cost of the decomposition machinery is the one decomposition check
-itself.
+Sub-questions run one after another, not with LangGraph's Send fan-out:
+most questions only have one, the trace stays in order, and one local
+Ollama instance wouldn't run them any faster in parallel.
 
-Each sub-question runs through the same nodes (sql_writer, executor,
-chart_decider, chart_generator, retriever, insight_writer) via a
-self-contained inner sub-graph, compiled once and invoked per
-sub-question -- this file adds the outer fan-out/fan-in layer around
-that shared per-question pipeline.
-
-Sub-questions run sequentially (a plain Python loop calling the inner
-compiled sub-graph once per sub-question), not via LangGraph's Send/
-map-reduce parallel fan-out. This is a deliberate simplicity choice: most
-real input is exactly 1 sub-question anyway, sequential execution keeps
-trace output readable in order, and it avoids firing concurrent LLM calls
-against a single local Ollama instance, which doesn't meaningfully
-parallelize a single-GPU model anyway. Parallel fan-out via Send would be
-a reasonable next step if sub-question counts grew or a remote API
-provider were the default.
+    python3 -m exo_agent.graph "How many planets were found by transit?"
 """
 
 from typing import Optional, TypedDict
@@ -63,7 +38,7 @@ from exo_agent.schemas import (
 
 
 class SubQuestionState(TypedDict, total=False):
-    """State for a single sub-question's inner pipeline run."""
+    """One sub-question's run through the inner graph."""
 
     sub_question: SubQuestion
     resolved_entity: Optional[ResolvedEntity]
@@ -78,9 +53,7 @@ class SubQuestionState(TypedDict, total=False):
 
 
 class AgentState(TypedDict, total=False):
-    """Top-level state: the original question, its decomposition, and
-    every sub-question's completed result, plus the final synthesized
-    (or passed-through) answer."""
+    """The whole question: plan, each sub-question's result, final answer."""
 
     question: str
     decomposition: Optional[DecompositionPlan]
@@ -89,9 +62,7 @@ class AgentState(TypedDict, total=False):
     error: Optional[str]
 
 
-# ---------------------------------------------------------------------------
-# Inner per-sub-question pipeline (operates on SubQuestionState)
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------ inner graph (one sub-question)
 
 
 def sql_writer_node(state: SubQuestionState) -> SubQuestionState:
@@ -145,12 +116,9 @@ def retriever_node(state: SubQuestionState) -> SubQuestionState:
         chunks = hybrid_search(state["sub_question"].text, top_k=5)
         return {"retrieved_chunks": chunks}
     except Exception as e:
-        # Deliberately broad: a retrieval failure shouldn't crash a
-        # question that might still be partially answerable via SQL.
-        # The exception TYPE is logged explicitly, not just its message,
-        # since a terse database error can otherwise be easy to miss in
-        # scrolling terminal output and look like "nothing was found"
-        # rather than "something went wrong."
+        # Catch everything: the SQL half may still answer the question.
+        # Log the exception type too; a bare "wiki_chunks does not exist"
+        # once looked like "no results" and took ages to spot.
         print(
             f"  [retriever] RETRIEVAL FAILED ({type(e).__name__}): {e}\n"
             f"  [retriever] Continuing without retrieved passages for this sub-question."
@@ -173,7 +141,7 @@ def insight_writer_node(state: SubQuestionState) -> SubQuestionState:
 
 
 def route_sub_question_start(state: SubQuestionState) -> list[str]:
-    """Fan out to SQL and/or retrieval based on THIS sub-question's own flags."""
+    """needs_sql / needs_retrieval -> which branch(es) to start. Neither -> SQL."""
     sub_q = state["sub_question"]
     branches = []
     if sub_q.needs_sql:
@@ -193,7 +161,7 @@ def route_after_chart_decision(state: SubQuestionState) -> str:
 
 
 def build_sub_question_graph():
-    """The inner graph: runs once per sub-question."""
+    """Compiled once at import, invoked per sub-question."""
     graph = StateGraph(SubQuestionState)
 
     graph.add_node("sql_writer", sql_writer_node)
@@ -226,9 +194,7 @@ def build_sub_question_graph():
 _SUB_GRAPH = build_sub_question_graph()
 
 
-# ---------------------------------------------------------------------------
-# Outer graph: decompose -> fan out to N sub-question runs -> synthesize
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------ outer graph (whole question)
 
 def decomposer_node(state: AgentState) -> AgentState:
     try:
@@ -245,13 +211,7 @@ def decomposer_node(state: AgentState) -> AgentState:
 
 
 def run_sub_questions_node(state: AgentState) -> AgentState:
-    """
-    Runs the inner sub-question graph once per sub-question, sequentially.
-    (LangGraph's Send/map-reduce could run these in parallel, but running
-    sequentially here keeps trace output readable and avoids surprising
-    concurrent-LLM-call costs on local models -- a reasonable tradeoff
-    given most real input is 1 sub-question anyway.)
-    """
+    """Run the inner graph for each sub-question, in order."""
     plan = state["decomposition"]
     results = []
     for sub_q in plan.sub_questions:
@@ -263,20 +223,16 @@ def run_sub_questions_node(state: AgentState) -> AgentState:
 
 def synthesizer_node(state: AgentState) -> AgentState:
     """
-    Combines the sub-answers into one final answer WITHOUT an LLM call.
+    Paste the sub-answers together, word for word. No LLM call.
 
-    Each sub-answer is already grounded by insight_writer, so this step
-    only has to put them side by side. It used to ask the model to
-    rewrite them into flowing prose, and twice that rewrite broke
-    grounding: once inventing a "knowledge cutoff" disclaimer, once
-    stating there were no 2025 discoveries when the sub-answer had 200
-    rows (see FINDINGS.md, 2026-06-23). Stitching the text verbatim means
-    this step cannot contradict or add to what the sub-answers say.
+    This used to be an LLM rewrite, and it broke twice: it invented a
+    "knowledge cutoff" line, then said there were no 2025 planets when
+    the sub-answer had 200 rows (FINDINGS.md, 2026-06-23). Pasting can't
+    add or contradict anything.
     """
     sub_results = state["sub_results"]
 
-    # Common case: exactly one sub-question -- pass its Insight through
-    # unchanged.
+    # one sub-question (the usual case) -> its answer as-is
     if len(sub_results) == 1:
         single = sub_results[0]
         if single.get("error"):
@@ -290,7 +246,7 @@ def synthesizer_node(state: AgentState) -> AgentState:
     for r in sub_results:
         insight = r.get("insight")
         if r.get("error") or not insight:
-            # Say plainly which part failed rather than dropping it silently
+            # name the failed part instead of quietly leaving it out
             paragraphs.append(
                 f'I couldn\'t answer "{r["sub_question"].text}": '
                 f'{r.get("error") or "no answer was produced"}.'
@@ -303,7 +259,7 @@ def synthesizer_node(state: AgentState) -> AgentState:
 
     final = Insight(
         answer="\n\n".join(paragraphs),
-        caveat=" ".join(dict.fromkeys(caveats)) or None,  # dedupe, preserve order
+        caveat=" ".join(dict.fromkeys(caveats)) or None,  # dedupe, keep order
         sources_used=list(dict.fromkeys(sources)),
     )
     return {"final_insight": final}
@@ -325,7 +281,7 @@ def build_graph():
 
 
 def ask(question: str) -> AgentState:
-    """Convenience entry point: run a question through the full graph."""
+    """Run one question through the whole graph and return the final state."""
     app = build_graph()
     final_state = app.invoke({"question": question})
     return final_state
