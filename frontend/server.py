@@ -31,6 +31,7 @@ if str(_SRC) not in sys.path:
 
 from exo_agent import config
 from exo_agent.graph import _SUB_GRAPH, ask, decomposer_node, synthesizer_node
+from exo_agent.nodes.executor import TEXT_FILTER
 
 app = FastAPI(title="exo-agent API")
 
@@ -181,15 +182,36 @@ def _build_trace(result: dict) -> list[TraceStep]:
         # ran first time, or needed repairs
         exec_result = sub_result.get("execution_result")
         if exec_result:
+            notes = exec_result.repair_notes
             if exec_result.repair_attempts:
+                zero_row_fix = any(n.startswith("0 rows:") for n in notes)
+                what = "Got 0 rows, fixed the filter" if zero_row_fix else "Query failed"
+                outcome = (
+                    f"returned {exec_result.row_count} row(s)" if exec_result.success
+                    else f"still failed: {exec_result.error}"
+                )
+                tried = "\n".join(f"- {n}" for n in notes)
                 steps.append(
                     TraceStep(
-                        label=f"{step_counter}. {prefix}Query failed — self-repaired and retried",
+                        label=f"{step_counter}. {prefix}{what} and retried",
                         detail=(
-                            f"The first attempt produced a SQL error from Postgres. The real "
-                            f"error message was fed back to the model, which corrected it and "
-                            f"retried -- {exec_result.repair_attempts} repair attempt(s) before "
-                            f"success.\n\nFinal working SQL: {exec_result.sql_used}"
+                            f"{exec_result.repair_attempts} repair(s), each sent back to the model:\n"
+                            f"{tried}\n\nFinal SQL ({outcome}):\n{exec_result.sql_used}"
+                        ),
+                    )
+                )
+            elif exec_result.row_count == 0:
+                checked = [v for _, _, v in TEXT_FILTER.findall(exec_result.sql_used)]
+                steps.append(
+                    TraceStep(
+                        label=f"{step_counter}. {prefix}Ran it: 0 rows"
+                        + (", checked the filters" if checked else ""),
+                        detail=(
+                            f"Looked up {', '.join(repr(v) for v in checked)} in every text "
+                            f"column; it doesn't appear anywhere else, so nothing in the "
+                            f"dataset matches."
+                            if checked else
+                            "No row matched the query's filters (no text filters to double-check)."
                         ),
                     )
                 )
