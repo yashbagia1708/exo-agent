@@ -40,9 +40,9 @@ real exoplanet catalogue — rather than another retail/Titanic dataset.
 ## Architecture
 
 The agent decomposes the input into 1–N independent sub-questions, runs
-each through its own routing/tool/answer pipeline, then synthesizes one
-final answer (or passes a single sub-answer straight through, with zero
-extra LLM cost, when there's nothing to combine):
+each through its own routing/tool/answer pipeline, then stitches the
+grounded sub-answers into one final answer word for word, with no LLM
+call (a single sub-answer passes straight through):
 
 ```
 question
@@ -83,7 +83,7 @@ meaningfully parallelize multiple concurrent calls regardless.
 ### The two knowledge sources
 
 - **Structured data** — real SQL against a live PostgreSQL database of
-  6,298 confirmed exoplanets. Used for counts, comparisons, trends,
+  every confirmed exoplanet (6,451 as of the latest download). Used for counts, comparisons, trends,
   named-entity lookups.
 - **Unstructured knowledge** — hybrid search (lexical full-text +
   semantic vector search, fused via Reciprocal Rank Fusion) over 18
@@ -125,15 +125,17 @@ fixed pipeline that always runs both.
   single pass/fail — because LLM behavior on identical input isn't
   deterministic, and a single clean test run can be misleading (see
   FINDINGS.md for a real, concrete example of exactly this).
-- **A live, inspectable demo.** The frontend (`frontend/`) shows a
-  glanceable routing summary (which sub-question went to the database vs.
-  Wikipedia, with the real SQL/sources) and a full step-by-step trace —
-  built from the agent's actual execution state, not a separate,
-  prettified fiction of what happened.
+- **A live, inspectable demo.** The frontend (`frontend/`) streams a
+  step-by-step trace as the agent runs: the plan (which sub-question goes
+  to the database vs. Wikipedia), each node as it finishes, then the
+  answer with its sources, chart and the SQL that ran. The trace is built
+  from the agent's actual execution state, not a separate, prettified
+  fiction of what happened.
 
 ## results
 
-Run against `qwen2.5-coder:14b` (local, free, via Ollama):
+Run against `qwen2.5-coder:14b` (local, free, via Ollama), on the June
+2026 data snapshot (6,298 planets):
 
 | Tier | What it tests | Pass rate |
 |---|---|---|
@@ -153,21 +155,26 @@ not a solved problem — seeing this clearly is the actual point of having
 an eval harness instead of just trying a few demo questions and feeling
 good about it.
 
-**A second, more serious limitation, found after adding multi-question
-decomposition:** when a compound question splits into 3+ sub-questions
-and one of them asks for something genuinely outside the schema (e.g.
-"which planet has the highest radial velocity" — there's no measured
-velocity column, only a detection-method label), the final synthesis
-step has, on different runs, both fabricated a vague "as of my training
-data" disclaimer *and*, after a prompt fix for that, flatly contradicted
-a correct, populated sub-answer (claiming "no planets were found" when
-the actual SQL had just returned 200 real rows). Two prompt-level fixes
-in a row did not reliably close this gap — full detail, including the
-reasoning for not yet attempting a third prompt patch, is in
-[`FINDINGS.md`](./FINDINGS.md)'s most recent entries. This is currently
-an open, unresolved finding, not something fixed and verified — I'd
-rather say that plainly than imply a fix landed when the evidence so far
-says it only partially did.
+**A second limitation, found and then fixed: the synthesis step.** When a
+compound question split into 3+ sub-questions and one asked for something
+outside the schema (e.g. "which planet has the highest radial velocity" —
+there's no measured velocity column, only a detection-method label), the
+step that combined sub-answers was itself an LLM call, and it broke
+grounding twice: once inventing an "as of my knowledge cutoff" disclaimer,
+then, after a prompt fix, contradicting a correct sub-answer ("no planets
+were found" when the SQL had just returned 200 rows). After two
+prompt-level fixes failed to hold, the synthesizer was rebuilt to stitch
+sub-answers together verbatim with no model call, so it can no longer add
+to or contradict them; regression tests replay both failures in CI.
+
+That exposed the real source of the radial-velocity claims: the insight
+writer, which had no rule against ranking by a quantity the data doesn't
+contain. Adding one took false "highest radial velocity" answers from
+**5/5 to 0/5** in live runs, with the caveat present in all 5, but 1 of 5
+runs still made a different false claim about the same missing data. So:
+much better and measured, not solved. Details, including the trade-off
+(combined answers read as separate paragraphs rather than flowing
+prose), are in [`FINDINGS.md`](./FINDINGS.md)'s 2026-10-26 entries.
 
 Full breakdown, including *why* particular failures happened and what
 was tried, is in [`FINDINGS.md`](./FINDINGS.md) — a dated log covering
@@ -175,7 +182,7 @@ distinct failure categories found during development: instruction
 overreach, structural SQL truncation, semantic type errors, silent
 NULL-as-extremum bugs, unreliable refusal behavior, entity-name guessing
 vs. deterministic verification, a physical-reasoning direction error, and
-the still-open synthesizer grounding gap described above.
+the synthesizer grounding gap described above and how it was closed.
 
 ## Model comparison
 
@@ -197,8 +204,8 @@ PROVIDER=anthropic MODEL=claude-sonnet-4-6 python3 -m exo_agent.graph "..."
 ## The data
 
 [NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/),
-PSCompPars table — 6,298 confirmed exoplanets across 4,716 unique host
-stars, downloaded directly via NASA's public TAP API
+PSCompPars table — every confirmed exoplanet and its host star (6,451
+planets across 4,847 stars as of the latest download), downloaded directly via NASA's public TAP API
 (`data/download_data.py`) and split into a two-table relational schema
 (`data/load_to_postgres.py`).
 
@@ -315,17 +322,18 @@ the extensions by hand.
 
 ## What I'd build next
 
-- **Top priority:** resolve the open synthesizer grounding gap above —
-  either confirm/rule out a model-capability ceiling by testing the exact
-  repro on Claude, or redesign the synthesizer to be more mechanical
-  (template directly from sub-answer data) rather than freely generated,
-  trading some fluency for a much stronger grounding guarantee
+- **Top priority:** investigate the tier-5 refusal reliability gap (1/5
+  on the life-detection question) properly, rather than just measuring it
+- Add the radial-velocity question to `eval/questions.jsonl` so its
+  5-run pass rate is tracked across future changes, and add a check that
+  flags an answer contradicting its own caveat (the one remaining failure
+  mode seen there)
+- Tell the insight writer the total row count, so a list truncated to the
+  first 30 rows says so instead of reading as complete
 - Add cross-sub-question dependency handling — a sub-question like "how
   does *this* planet compare to Earth" currently can't reference an
   earlier sub-question's resolved entity/result, since each sub-question
   runs independently
-- Investigate the tier-5 refusal reliability gap (1/5 on the life-detection
-  question) properly, rather than just measuring it
 - Add observability (Langfuse) for real token-cost and latency tracking
   across runs, not just wall-clock timing
 - Extend the agent's tool set beyond SQL/retrieval — e.g. a real
