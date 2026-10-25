@@ -6,6 +6,8 @@ after the query, so it can see the real shape, e.g. a "trend" question
 that came back as one row gets no chart.
 """
 
+from decimal import Decimal
+
 from exo_agent import config
 from exo_agent.providers.factory import get_client
 from exo_agent.schemas import ChartSpec
@@ -61,6 +63,35 @@ def decide_chart(question: str, columns: list[str], rows: list[dict]) -> ChartSp
         ],
     )
     return result
+
+
+def _is_number(v) -> bool:
+    return isinstance(v, (int, float, Decimal)) and not isinstance(v, bool)
+
+
+def chart_problem(spec: ChartSpec, columns: list[str], rows: list[dict]) -> str | None:
+    """
+    Why this chart can't be drawn from these rows, or None if it can.
+
+        bar, x=pl_name, y=None    -> "it has no y-axis column"
+        bar, y=pl_name (text)     -> "the y column 'pl_name' isn't numeric"
+    """
+    if spec.chart_type == "none":
+        return None
+    if len(rows) < 2:
+        return "there's only one row to plot"
+    if not spec.x_field or not spec.y_field:
+        missing = "x" if not spec.x_field else "y"
+        return f"it has no {missing}-axis column"
+    for field in (spec.x_field, spec.y_field):
+        if field not in columns:
+            return f"'{field}' isn't a column in the results"
+    # need something to measure: at least two numeric y values
+    if sum(_is_number(r.get(spec.y_field)) for r in rows) < 2:
+        return f"the y column '{spec.y_field}' isn't numeric"
+    if spec.chart_type == "scatter" and sum(_is_number(r.get(spec.x_field)) for r in rows) < 2:
+        return f"a scatter plot needs a numeric x column, and '{spec.x_field}' isn't"
+    return None
 
 
 if __name__ == "__main__":
