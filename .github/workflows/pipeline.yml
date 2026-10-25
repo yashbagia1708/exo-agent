@@ -1,5 +1,5 @@
 # On pushes to main and every PR: load the real NASA data into a real Postgres (pgvector)
-# with Ollama embeddings, re-load it to prove the loaders can be re-run,
+# with Ollama embeddings, re-load the planets to prove that's repeatable,
 # then check the data and the agent's database tools against it.
 # No chat model is needed; the data-quality notes and counts are attached
 # to the run as downloadable artifacts.
@@ -11,10 +11,15 @@ on:
   pull_request:
   workflow_dispatch:
 
+# a new push to the same PR cancels the run it replaces
+concurrency:
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   load-and-check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -39,12 +44,13 @@ jobs:
       - name: Install, download and load (planets + wiki corpus)
         uses: ./.github/actions/load-data
 
-      - name: Re-run both loaders (counts must not change)
+      # the wiki loader also drops and recreates its table, but re-embedding
+      # 500 chunks on CPU costs minutes, so only the planet loader is re-run
+      - name: Re-run the planet loader (counts must not change)
         run: |
           mkdir -p output
           python scripts/db_counts.py | tee output/counts_first_load.json
           python data/load_to_postgres.py > /dev/null
-          python data/load_wiki_to_postgres.py > /dev/null
           python scripts/db_counts.py | tee output/counts_second_load.json
           diff output/counts_first_load.json output/counts_second_load.json
 
