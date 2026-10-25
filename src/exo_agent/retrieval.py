@@ -21,7 +21,6 @@ cited default) that controls how much weight low ranks still get.
 """
 
 import json
-import pathlib
 import urllib.error
 import urllib.request
 from dataclasses import dataclass

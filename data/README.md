@@ -37,7 +37,8 @@ You already have `data/raw_pscomppars.csv` — great. Next step:
 
 ### Set up Postgres (one-time, local)
 
-If you don't already have Postgres running locally:
+Easiest: `make db-up` starts Postgres in Docker with every extension
+preinstalled (see the main README). To install it natively instead:
 
 **macOS (Homebrew):**
 ```bash
@@ -54,7 +55,7 @@ sudo systemctl start postgresql
 Then create the database and user:
 ```bash
 createdb exoagent
-createuser exoagent --pwprompt   # enter password: exoagent (or your own — update DB_DSN in load_to_postgres.py if you change it)
+createuser exoagent --pwprompt   # enter password: exoagent (or your own — set DB_DSN in .env to match)
 psql exoagent -c "GRANT ALL ON SCHEMA public TO exoagent;"
 ```
 

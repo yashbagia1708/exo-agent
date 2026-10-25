@@ -15,7 +15,7 @@ genuinely compound input.
 
 from exo_agent import config
 from exo_agent.providers.factory import get_client
-from exo_agent.schemas import DecompositionPlan, SubQuestion
+from exo_agent.schemas import DecompositionPlan
 
 SYSTEM_PROMPT = """You analyze a question about exoplanets and decide two \
 things: how many genuinely distinct questions are actually being asked, \
