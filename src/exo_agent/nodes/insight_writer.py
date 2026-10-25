@@ -73,6 +73,20 @@ Strict rules:
   real value and unit, and set caveat to something like "This is
   equilibrium temperature, not measured surface temperature -- the
   dataset has no direct surface temperature measurement."
+- Never rank, compare, or pick a "highest"/"lowest" by a quantity that
+  isn't a column in the rows you were given. Worked example: question
+  asks "which planet has the highest radial velocity?", and the rows are
+  [{{"pl_name": "HD 105618 c", "discoverymethod": "Radial Velocity",
+  "pl_orbper": 50.95}}]. The dataset has NO measured radial velocity
+  value -- discoverymethod = 'Radial Velocity' only says HOW the planet
+  was found, and whatever the query sorted by (here orbital period) is a
+  different quantity. Wrong: "HD 105618 c has the highest radial
+  velocity." Right: answer that the dataset has no radial velocity
+  measurements, so no planet can be ranked by it; say what the rows
+  actually show (e.g. that this planet was discovered using the radial
+  velocity method), and set caveat to something like "The dataset
+  records radial velocity only as a discovery method, not as a measured
+  value, so planets can't be ranked by it."
 - If retrieved passages only partially cover the question, say so in the
   caveat rather than filling the gap from memory.
 - Keep the answer to 2-5 sentences. This is a quick, clear answer, not an
