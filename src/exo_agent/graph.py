@@ -11,17 +11,17 @@ Flow:
                        └─ sub-question N: ...
                        │
                        v
-                 synthesizer ──► one coherent final answer, OR the single
-                                  sub-answer directly if there was only 1
-                                  sub-question (no synthesis LLM call
-                                  wasted on the common case)
+                 synthesizer ──► stitches the sub-answers, caveats and
+                                  sources together verbatim (no LLM call),
+                                  or passes a single sub-answer straight
+                                  through
 
 A message joining two unrelated asks with "and" (e.g. "list X, and tell
 me Y") is two independent questions, not one question with two
 conditions -- fusing them into a single SQL query would silently answer
 neither part correctly. Most real questions still decompose to exactly
-one sub-question, so the common case pays no extra LLM-call cost for the
-decomposition/synthesis machinery beyond the one decomposition check
+one sub-question, and synthesis never calls the LLM, so the only extra
+cost of the decomposition machinery is the one decomposition check
 itself.
 
 Each sub-question runs through the same nodes (sql_writer, executor,
@@ -45,7 +45,6 @@ from typing import Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from exo_agent import config
 from exo_agent.nodes.chart_decider import decide_chart
 from exo_agent.nodes.chart_generator import generate_chart
 from exo_agent.nodes.entity_resolver import ResolvedEntity, resolve_entity
@@ -53,7 +52,6 @@ from exo_agent.nodes.executor import ExecutionResult, execute_sql
 from exo_agent.nodes.insight_writer import write_insight
 from exo_agent.nodes.planner import plan_decomposition
 from exo_agent.nodes.sql_writer import write_sql
-from exo_agent.providers.factory import get_client
 from exo_agent.retrieval import RetrievedChunk, hybrid_search
 from exo_agent.schemas import (
     ChartSpec,
@@ -61,7 +59,6 @@ from exo_agent.schemas import (
     Insight,
     SQLQuery,
     SubQuestion,
-    SynthesizedInsight,
 )
 
 
@@ -233,62 +230,6 @@ _SUB_GRAPH = build_sub_question_graph()
 # Outer graph: decompose -> fan out to N sub-question runs -> synthesize
 # ---------------------------------------------------------------------------
 
-SYNTHESIS_SYSTEM_PROMPT = """You combine multiple independently-answered \
-sub-questions into one single, coherent final answer to the user's \
-original question.
-
-Each sub-answer below was already grounded in real data (SQL results and/or \
-retrieved passages) -- your job is only to present them together clearly, \
-NOT to re-derive, re-check, or add any new facts. Keep each sub-answer's \
-findings distinct rather than blending them into vague generalizations. \
-Carry forward every caveat and every source URL from the sub-answers \
-exactly -- do not drop any of them.
-
-Write in natural, flowing prose -- like a knowledgeable person answering \
-both parts of a question in normal conversation. Do NOT structure your \
-answer as a list of labeled sub-answers, and do NOT repeat the literal \
-sub-question text as a heading or lead-in. Never write things like \
-"On 'sub-question text':" or "Regarding the first question:" or "For \
-question 2:" -- transition between topics the way a person naturally \
-would, with no visible scaffolding.
-
-Worked example:
-  WRONG: "On 'What are the planets that orbit TRAPPIST-1?': The planets \
-are... On 'What is Kepler?': The Kepler telescope was..."
-  RIGHT: "The planets orbiting TRAPPIST-1 are b, c, d, e, f, g, and h. \
-Separately, the Kepler space telescope was a NASA observatory that \
-operated from 2009 to 2018..."
-The RIGHT version covers exactly the same two facts, with no loss of \
-information and no added claims -- it just reads naturally instead of \
-exposing the internal Q&A structure to the user.
-
-CRITICAL RULES -- violating these is a serious failure of this system:
-- NEVER mention a "knowledge cutoff", "training data", or any limitation \
-of yourself as a language model. You are not answering from memory here \
--- you are only combining sub-answers that were already grounded in real \
-data. A sentence like "as of my knowledge cutoff..." must NEVER appear in \
-your output, under any circumstance.
-- NEVER add a fact, date, name, or number that isn't present in the \
-sub-answers below, even if you are confident it's true from your own \
-general knowledge. If a sub-answer is missing, empty, vague, or itself \
-says "I don't have this information", your job is to report THAT \
-honestly as part of the combined answer -- not to fill the gap yourself.
-- A correct, working sub-answer must never be discarded or hedged into \
-uncertainty just because OTHER sub-answers in the same question were \
-weak or unsuccessful. Each sub-answer's reliability is independent --
-report each one on its own merits.
-"""
-
-SYNTHESIS_USER_PROMPT = """Original question: "{question}"
-
-Here is what was found for each part (already grounded in real data -- \
-use ONLY this content, but do not repeat this structure verbatim):
-{sub_answers}
-
-Write one combined final answer in natural prose, as described above.
-"""
-
-
 def decomposer_node(state: AgentState) -> AgentState:
     try:
         plan = plan_decomposition(state["question"])
@@ -321,50 +262,49 @@ def run_sub_questions_node(state: AgentState) -> AgentState:
 
 
 def synthesizer_node(state: AgentState) -> AgentState:
+    """
+    Combines the sub-answers into one final answer WITHOUT an LLM call.
+
+    Each sub-answer is already grounded by insight_writer, so this step
+    only has to put them side by side. It used to ask the model to
+    rewrite them into flowing prose, and twice that rewrite broke
+    grounding: once inventing a "knowledge cutoff" disclaimer, once
+    stating there were no 2025 discoveries when the sub-answer had 200
+    rows (see FINDINGS.md, 2026-06-23). Stitching the text verbatim means
+    this step cannot contradict or add to what the sub-answers say.
+    """
     sub_results = state["sub_results"]
 
     # Common case: exactly one sub-question -- pass its Insight through
-    # directly, no synthesis LLM call needed.
+    # unchanged.
     if len(sub_results) == 1:
         single = sub_results[0]
         if single.get("error"):
             return {"error": single["error"]}
         return {"final_insight": single["insight"]}
 
-    # Compound case: combine multiple sub-answers into one coherent answer.
-    successful = [r for r in sub_results if not r.get("error") and r.get("insight")]
-    if not successful:
+    if not any(r.get("insight") and not r.get("error") for r in sub_results):
         return {"error": "All sub-questions failed; no answer could be synthesized."}
 
-    sub_answers_text = "\n\n".join(
-        f"Q: {r['sub_question'].text}\nA: {r['insight'].answer}"
-        + (f"\nCaveat: {r['insight'].caveat}" if r["insight"].caveat else "")
-        for r in successful
-    )
-
-    client = get_client()
-    result = client.chat.completions.create(
-        model=config.MODEL,
-        response_model=SynthesizedInsight,
-        messages=[
-            {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": SYNTHESIS_USER_PROMPT.format(
-                    question=state["question"], sub_answers=sub_answers_text
-                ),
-            },
-        ],
-    )
-
-    all_sources = []
-    for r in successful:
-        all_sources.extend(r["insight"].sources_used)
+    paragraphs, caveats, sources = [], [], []
+    for r in sub_results:
+        insight = r.get("insight")
+        if r.get("error") or not insight:
+            # Say plainly which part failed rather than dropping it silently
+            paragraphs.append(
+                f'I couldn\'t answer "{r["sub_question"].text}": '
+                f'{r.get("error") or "no answer was produced"}.'
+            )
+            continue
+        paragraphs.append(insight.answer.strip())
+        if insight.caveat:
+            caveats.append(insight.caveat.strip())
+        sources.extend(insight.sources_used)
 
     final = Insight(
-        answer=result.answer,
-        caveat=result.caveat,
-        sources_used=list(dict.fromkeys(all_sources)),  # dedupe, preserve order
+        answer="\n\n".join(paragraphs),
+        caveat=" ".join(dict.fromkeys(caveats)) or None,  # dedupe, preserve order
+        sources_used=list(dict.fromkeys(sources)),
     )
     return {"final_insight": final}
 

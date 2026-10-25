@@ -65,7 +65,7 @@ planner ──► decomposes into 1-N sub-questions, each independently routed
    └── sub-question N ──► ...
                               │
                               v
-                       synthesizer ──► one coherent final answer
+                       synthesizer ──► sub-answers stitched together verbatim
                        (skipped — passthrough — if there was only
                         1 sub-question, the common case)
 ```
