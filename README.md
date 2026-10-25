@@ -260,6 +260,7 @@ exo-agent/
 ├── docker-compose.yml, docker/      ← local Postgres with pgvector + pg_trgm
 ├── Makefile                         ← setup / load / serve / test shortcuts
 │
+├── launch.py                        ← one-command launcher (python3 launch.py)
 ├── compare_models.py                side-by-side local-model comparison tool
 ├── test_provider.py                  quick smoke test for the provider layer
 └── PROJECT_CONTEXT.md               compact project-state summary for resuming
@@ -274,7 +275,19 @@ fixes → `src/exo_agent/graph.py` for the actual wiring → any individual
 ## Running it
 
 Needs Python 3.10+, Docker, and [Ollama](https://ollama.com). Everything
-runs locally and free.
+runs locally and free. One command starts it all:
+
+```bash
+python3 launch.py     # or: make demo
+```
+
+The launcher creates `.venv`, starts Postgres in Docker and the Ollama
+server, pulls the models, loads the data on first run, then opens the UI
+at http://localhost:8420. Anything already running is reused, and Ctrl+C
+stops what it started. The first run downloads about 9 GB of models;
+after that it's up in seconds.
+
+To run the steps yourself instead:
 
 ```bash
 make setup        # .venv + dependencies, and .env copied from .env.example

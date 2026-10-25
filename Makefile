@@ -6,12 +6,15 @@ BIN    := $(VENV)/bin
 PORT   ?= 8420
 
 .DEFAULT_GOAL := help
-.PHONY: help setup db-up db-down db-reset download-data load-data load-wiki \
+.PHONY: help demo setup db-up db-down db-reset download-data load-data load-wiki \
         models serve test lint format eval clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+
+demo:  ## Start everything (Postgres, Ollama, data, web UI) and open the browser
+	$(PYTHON) launch.py
 
 setup: $(BIN)/activate .env  ## Create .venv and install the project + dev tools
 
@@ -68,6 +71,6 @@ eval:  ## Run the LLM eval harness (slow; needs Ollama + loaded DB)
 	$(BIN)/python eval/run_eval.py
 
 clean:  ## Remove caches and generated charts
-	rm -rf .pytest_cache .ruff_cache
+	rm -rf .pytest_cache .ruff_cache .ollama.log
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +
 	rm -f charts/*.png

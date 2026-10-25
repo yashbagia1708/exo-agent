@@ -10,21 +10,32 @@ version of it.
 
 Updated for the decomposition-aware graph: a question can now produce
 MULTIPLE sub-question results (each with its own SQL/retrieval/insight),
-synthesized into one final answer. The trace reflects this -- each
+combined into one final answer. The trace reflects this -- each
 sub-question gets its own numbered group of steps, followed by a
-synthesis step if there was more than one.
+combining step if there was more than one.
+
+Two ways to ask:
+  - POST /api/ask         one JSON response when the whole run finishes
+  - POST /api/ask/stream  server-sent events: the trace grows step by step
+                          as each graph node finishes, then the same final
+                          response /api/ask would have returned
 
 Run with:
-    PROVIDER=ollama uvicorn frontend.server:app --reload --port 8420
+    python3 launch.py          (starts Postgres + Ollama too)
+    uvicorn frontend.server:app --reload --port 8420
 """
 
 import base64
+import json
 import pathlib
 import sys
 import time
+from functools import lru_cache
 
+import psycopg2
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -33,7 +44,7 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from exo_agent import config
-from exo_agent.graph import ask
+from exo_agent.graph import _SUB_GRAPH, ask, decomposer_node, synthesizer_node
 
 app = FastAPI(title="exo-agent API")
 
@@ -289,18 +300,19 @@ def _build_trace(result: dict) -> list[TraceStep]:
             )
             step_counter += 1
 
-    if multi:
+    # Only once synthesis has run -- the live stream rebuilds this trace mid-run
+    if multi and result.get("final_insight"):
         num_sources = len(set(
             src for r in sub_results for src in (r.get("insight").sources_used if r.get("insight") else [])
         ))
         sources_note = f" Drew on {num_sources} source(s) total across all parts." if num_sources else ""
         steps.append(
             TraceStep(
-                label=f"{step_counter}. Synthesized one final answer",
+                label=f"{step_counter}. Combined the sub-answers",
                 detail=(
-                    f"Combined all {len(sub_results)} sub-answers above into one coherent, "
-                    f"natural-language response, carrying forward every caveat and source "
-                    f"exactly as found -- no new facts were added during this step.{sources_note}"
+                    f"Placed all {len(sub_results)} sub-answers side by side, word for word, "
+                    f"with every caveat and source carried over. No model call: this step "
+                    f"can't add or change facts.{sources_note}"
                 ),
             )
         )
@@ -338,25 +350,12 @@ def _build_routing_summary(result: dict) -> list[SubQuestionSummary]:
     return summaries
 
 
-@app.post("/api/ask", response_model=AskResponse)
-def ask_question(req: AskRequest) -> AskResponse:
-    start = time.time()
-    try:
-        result = ask(req.question)
-    except Exception as e:
-        return AskResponse(
-            question=req.question,
-            success=False,
-            error=str(e),
-            elapsed_seconds=time.time() - start,
-            model_used=config.describe(),
-        )
-
-    elapsed = time.time() - start
-
+def _build_response(question: str, result: dict, elapsed: float) -> AskResponse:
+    """The final answer payload, shared by /api/ask and /api/ask/stream so
+    both endpoints describe a finished run identically."""
     if result.get("error"):
         return AskResponse(
-            question=req.question,
+            question=question,
             success=False,
             error=result["error"],
             trace=_build_trace(result),
@@ -386,7 +385,7 @@ def ask_question(req: AskRequest) -> AskResponse:
                 ).decode("utf-8")
 
     return AskResponse(
-        question=req.question,
+        question=question,
         success=True,
         answer=insight.answer if insight else None,
         caveat=insight.caveat if insight else None,
@@ -403,9 +402,140 @@ def ask_question(req: AskRequest) -> AskResponse:
     )
 
 
+@app.post("/api/ask", response_model=AskResponse)
+def ask_question(req: AskRequest) -> AskResponse:
+    start = time.time()
+    try:
+        result = ask(req.question)
+    except Exception as e:
+        return AskResponse(
+            question=req.question,
+            success=False,
+            error=str(e),
+            elapsed_seconds=time.time() - start,
+            model_used=config.describe(),
+        )
+    return _build_response(req.question, result, time.time() - start)
+
+
+# What the agent is about to do after each inner-graph node finishes --
+# shown as the live "working on..." line while the next node runs.
+_NEXT_ACTIVITY = {
+    "sql_writer": "Running the query against Postgres",
+    "executor": "Deciding whether a chart would help",
+    "chart_decider": "Writing a grounded answer",
+    "chart_generator": "Writing a grounded answer",
+    "retriever": "Writing a grounded answer",
+    "insight_writer": None,
+}
+
+
+def _sse(event: dict) -> str:
+    return f"data: {json.dumps(event, default=str)}\n\n"
+
+
+def _stream_run(question: str):
+    """
+    Runs the same graph pieces ask() runs -- decomposer, the compiled
+    per-sub-question graph, synthesizer -- but streams the inner graph so
+    every finished node is reported as it happens. After each node the
+    trace is rebuilt from the partial state with _build_trace(), so the
+    live trace and the final one come from the same code.
+    """
+    start = time.time()
+    result: dict = {"question": question, "sub_results": []}
+
+    def snapshot(current: dict | None = None) -> str:
+        partial = dict(result)
+        partial["sub_results"] = result["sub_results"] + ([current] if current else [])
+        steps = [step.model_dump() for step in _build_trace(partial)]
+        return _sse({"type": "trace", "trace": steps, "elapsed": time.time() - start})
+
+    try:
+        yield _sse({"type": "activity", "message": "Planning: splitting and routing your question"})
+        result.update(decomposer_node(result))
+        plan = result["decomposition"]
+        yield _sse({
+            "type": "plan",
+            "reasoning": plan.reasoning,
+            "sub_questions": [sq.model_dump() for sq in plan.sub_questions],
+        })
+
+        total = len(plan.sub_questions)
+        for i, sub_q in enumerate(plan.sub_questions):
+            prefix = f"Part {i + 1} of {total}: " if total > 1 else ""
+            first = []
+            if sub_q.needs_sql or not sub_q.needs_retrieval:
+                first.append("verifying names and writing SQL")
+            if sub_q.needs_retrieval:
+                first.append("searching Wikipedia")
+            activity = " and ".join(first)
+            yield _sse({"type": "activity", "message": prefix + activity[0].upper() + activity[1:]})
+
+            current: dict = {"sub_question": sub_q}
+            yield snapshot(current)
+            for mode, chunk in _SUB_GRAPH.stream(
+                {"sub_question": sub_q}, stream_mode=["updates", "values"]
+            ):
+                if mode == "values":
+                    current = chunk
+                    continue
+                for node, update in chunk.items():
+                    current = {**current, **(update or {})}
+                    yield snapshot(current)
+                    next_up = _NEXT_ACTIVITY.get(node)
+                    if node == "chart_decider":
+                        spec = current.get("chart_spec")
+                        if spec and spec.chart_type != "none":
+                            next_up = "Rendering the chart"
+                    if next_up:
+                        yield _sse({"type": "activity", "message": prefix + next_up})
+            result["sub_results"].append(current)
+
+        if total > 1:
+            yield _sse({"type": "activity", "message": "Combining the answers"})
+        result.update(synthesizer_node(result))
+        response = _build_response(question, result, time.time() - start)
+    except Exception as e:
+        response = AskResponse(
+            question=question,
+            success=False,
+            error=str(e),
+            trace=_build_trace(result),
+            elapsed_seconds=time.time() - start,
+            model_used=config.describe(),
+        )
+    yield _sse({"type": "result", "result": response.model_dump()})
+
+
+@app.post("/api/ask/stream")
+def ask_question_stream(req: AskRequest) -> StreamingResponse:
+    return StreamingResponse(
+        _stream_run(req.question),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@lru_cache(maxsize=1)
+def _dataset_stats() -> dict:
+    """Real row counts for the header, so the UI never hard-codes them."""
+    with psycopg2.connect(config.DB_DSN, connect_timeout=3) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT (SELECT count(*) FROM planets), (SELECT count(*) FROM host_stars), "
+            "(SELECT count(DISTINCT title) FROM wiki_chunks)"
+        )
+        planets, stars, articles = cur.fetchone()
+    return {"planets": planets, "host_stars": stars, "wiki_articles": articles}
+
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "model": config.describe()}
+    try:
+        stats = _dataset_stats()
+    except psycopg2.Error:
+        stats = None
+    return {"status": "ok", "model": config.describe(), "provider": config.PROVIDER, "stats": stats}
 
 
 @app.get("/api/topics")
@@ -421,8 +551,6 @@ def topics():
     manifest_path = pathlib.Path(__file__).parent.parent / "data" / "wiki_corpus" / "_manifest.json"
     if not manifest_path.exists():
         return {"topics": [], "note": "Wiki corpus not yet downloaded -- run data/download_wiki_corpus.py"}
-
-    import json
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     topics_list = [
