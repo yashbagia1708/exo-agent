@@ -1,21 +1,12 @@
 """
-Entity resolver: given a sub-question, extracts any planet/star name it
-mentions and looks up real fuzzy matches against the database using
-pg_trgm trigram similarity, rather than relying on the LLM to guess.
+Entity resolver: find the stored name for a planet/star the question mentions.
 
-Catalogue names are often abbreviated or formatted differently than
-common usage (e.g. the star commonly called "Proxima Centauri" is
-stored as "Proxima Cen" in this dataset). Asking an LLM to use ILIKE
-with wildcards on a guessed name still requires it to pick the right
-substring, and a full guessed name can fail to match an abbreviated real
-value even with wildcards around it.
+    "Proxima Centauri b" -> "Proxima Cen b"  (planets, similarity 0.6)
+    "Zorblax Prime"      -> no match          (probably not in the data)
 
-Instead, this module resolves the name deterministically: a cheap LLM
-call extracts the likely name mention, then a real trigram similarity
-query against the database returns an actual, measurable score. If a
-strong match is found, the SQL writer is handed the confirmed real name
-directly and never has to guess. If no good match is found, that's a
-reliable signal the named object likely isn't in the dataset.
+The model only pulls out the name as written; the match itself is a
+pg_trgm similarity query, so the SQL writer gets a real value instead of
+guessing catalogue abbreviations with ILIKE.
 """
 
 from dataclasses import dataclass
@@ -26,7 +17,7 @@ from exo_agent import config
 from exo_agent.providers.factory import get_client
 from exo_agent.schemas import EntityExtraction
 
-SIMILARITY_THRESHOLD = 0.35  # pg_trgm's default is 0.3; slightly stricter to avoid weak matches
+SIMILARITY_THRESHOLD = 0.35  # pg_trgm default is 0.3; a bit stricter to skip weak matches
 
 EXTRACTION_SYSTEM_PROMPT = """Extract any specific named planet or star \
 mentioned in this question, if any. Return the name as it appears in the \
@@ -39,8 +30,8 @@ categories, or trends with no specific name), return an empty string.
 @dataclass
 class ResolvedEntity:
     mentioned_as: str
-    resolved_name: str | None  # the real, confirmed database value, or None if no good match
-    table: str | None  # 'planets' or 'host_stars', whichever table it was found in
+    resolved_name: str | None  # stored value, or None if nothing close enough
+    table: str | None  # 'planets' or 'host_stars'
     similarity_score: float | None
 
 
@@ -58,10 +49,7 @@ def _extract_entity_mention(question: str) -> str:
 
 
 def _trigram_lookup(mentioned_name: str) -> ResolvedEntity:
-    """
-    Real, deterministic fuzzy match against both pl_name and hostname
-    using pg_trgm similarity -- no LLM involved in this step.
-    """
+    """Best pg_trgm match across pl_name and hostname. No LLM here."""
     conn = psycopg2.connect(config.DB_DSN)
     try:
         cur = conn.cursor()
@@ -101,11 +89,7 @@ def _trigram_lookup(mentioned_name: str) -> ResolvedEntity:
 
 
 def resolve_entity(question: str) -> ResolvedEntity | None:
-    """
-    Returns a ResolvedEntity if the question mentions a specific named
-    planet/star, or None if it doesn't mention one at all (most
-    questions -- counts, categories, trends -- have nothing to resolve).
-    """
+    """None if no planet/star is named (most questions), else the best match."""
     mentioned = _extract_entity_mention(question)
     if not mentioned:
         return None
@@ -120,7 +104,7 @@ if __name__ == "__main__":
         "Which planets orbit TRAPPIST-1?",
         "How many confirmed exoplanets are there?",
         "What's the mass of Kepler-22b?",
-        "Tell me about a planet called Zorblax Prime",  # should resolve to nothing / weak match
+        "Tell me about a planet called Zorblax Prime",  # made up -> no match
     ]
 
     questions = sys.argv[1:] if len(sys.argv) > 1 else test_questions

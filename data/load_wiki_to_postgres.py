@@ -1,18 +1,12 @@
 """
-Loads the downloaded Wikipedia corpus (data/wiki_corpus/*.json) into
-Postgres with BOTH a vector embedding column (pgvector, for semantic
-search) and a full-text search column (tsvector, for lexical search) --
-the two halves of hybrid retrieval.
+Load data/wiki_corpus/*.json into the wiki_chunks table.
 
-Embeddings are generated via Ollama's nomic-embed-text model -- free,
-local, no API key needed, the same pattern as the chat models already
-used elsewhere in this project.
+    python3 data/load_wiki_to_postgres.py     (needs Ollama running; drops and recreates the table)
 
-Requires the pgvector extension. On most systems:
-    psql exoagent -c "CREATE EXTENSION IF NOT EXISTS vector;"
-This script attempts that itself, but you may need superuser privileges
-locally if it's not already installed -- see the error message if it
-fails.
+Each chunk gets an embedding (nomic-embed-text via Ollama, for vector
+search) and a tsvector (for full-text search): both halves of hybrid
+retrieval in one table. Needs the pgvector extension; the Docker image
+has it, otherwise CREATE EXTENSION vector may need a superuser.
 """
 
 import json
@@ -28,7 +22,7 @@ from exo_agent import config
 
 WIKI_CORPUS_DIR = pathlib.Path(__file__).parent / "wiki_corpus"
 EMBED_MODEL = "nomic-embed-text"
-EMBED_DIM = 768  # nomic-embed-text's native output dimension
+EMBED_DIM = 768  # nomic-embed-text output size
 
 SCHEMA_SQL = """
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -48,17 +42,14 @@ CREATE TABLE wiki_chunks (
 CREATE INDEX idx_wiki_chunks_search ON wiki_chunks USING GIN(search_vec);
 """
 
-# A separate statement so we can format the dimension safely without
-# psycopg2 trying to parameterize inside a DDL VECTOR(...) type spec.
+# dimension goes in with %, not as a query parameter: psycopg2 can't parameterize VECTOR(n)
 SCHEMA_SQL_FORMATTED = SCHEMA_SQL % {"dim": EMBED_DIM}
 
 UPDATE_SEARCH_VEC_SQL = """
 UPDATE wiki_chunks SET search_vec = to_tsvector('english', content);
 """
 
-# pgvector's ANN index (HNSW) is built AFTER data is loaded, since
-# building it on an empty table is pointless and building it incrementally
-# during inserts is slower than a single bulk build at the end.
+# build the HNSW index once, after the inserts (faster than updating it row by row)
 CREATE_VECTOR_INDEX_SQL = """
 CREATE INDEX idx_wiki_chunks_embedding
     ON wiki_chunks USING hnsw (embedding vector_cosine_ops);
@@ -66,12 +57,7 @@ CREATE INDEX idx_wiki_chunks_embedding
 
 
 def get_embedding(text: str) -> list[float]:
-    """
-    Call Ollama's embedding endpoint directly via urllib -- deliberately
-    NOT going through the instructor/chat-completion client used
-    elsewhere, since embeddings are a different API shape (no structured
-    output, no chat messages, just text in -> vector out).
-    """
+    """text -> 768 floats from Ollama's /api/embed (plain HTTP; instructor is for chat only)."""
     payload = json.dumps({"model": EMBED_MODEL, "input": text}).encode("utf-8")
     req = urllib.request.Request(
         f"{config.OLLAMA_BASE_URL.replace('/v1', '')}/api/embed",

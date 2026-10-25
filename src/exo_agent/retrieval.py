@@ -1,23 +1,14 @@
 """
-Hybrid retrieval over the wiki_chunks table: combines lexical (Postgres
-full-text search) and semantic (pgvector cosine similarity) results via
-Reciprocal Rank Fusion (RRF) -- the standard technique used by
-production hybrid-search systems (Elasticsearch, Azure AI Search,
-Weaviate all implement some form of this).
+Hybrid search over wiki_chunks: full-text + vector, merged with RRF.
 
-Why hybrid, not just one or the other:
-  - Lexical search is precise for exact terminology a question might use
-    verbatim ("transit method", "TRAPPIST-1") but misses paraphrases.
-  - Semantic search finds conceptually related passages even when the
-    wording differs entirely, but can occasionally surface a tangentially
-    related passage over an exact keyword match.
-  - RRF takes each result's RANK (not raw score) in each list and combines
-    them, which sidesteps the problem of lexical and semantic scores being
-    on completely different, incomparable scales.
+    lexical   good at exact terms ("TRAPPIST-1"), misses paraphrases
+    semantic  catches paraphrases, sometimes drifts off topic
+    RRF       score(d) = sum over both lists of 1 / (k + rank)
 
-RRF formula: for each document d, score(d) = sum over each ranked list L
-of 1 / (k + rank_L(d)), where k is a small constant (60 is the commonly
-cited default) that controls how much weight low ranks still get.
+RRF uses ranks, not raw scores, because the two scores aren't on the
+same scale.
+
+    python3 -m exo_agent.retrieval "How does the transit method work?"
 """
 
 import json
@@ -31,7 +22,7 @@ import psycopg2.extras
 from exo_agent import config
 
 EMBED_MODEL = "nomic-embed-text"
-RRF_K = 60  # standard default constant for RRF
+RRF_K = 60  # the usual default
 
 
 @dataclass
@@ -79,16 +70,10 @@ def _lexical_search(cur, query: str, limit: int) -> list[tuple]:
 
 
 def _to_tsquery_safe(query: str) -> str:
-    """
-    Converts a free-text question into a basic OR-joined tsquery so it
-    doesn't blow up on punctuation or stopword-only input. This is a
-    simple approach -- plainto_tsquery would be more robust, but using
-    to_tsquery with explicit OR joins keeps individual term matches
-    visible for debugging the trace output.
-    """
+    """'how does the transit method work?' -> 'how | does | the | transit | method'"""
     words = [w.strip() for w in query.split() if w.strip().isalnum()]
     if not words:
-        return "exoplanet"  # safe fallback so the query never errors on punctuation-only input
+        return "exoplanet"  # punctuation-only input would make an invalid tsquery
     return " | ".join(words)
 
 
@@ -107,14 +92,7 @@ def _semantic_search(cur, query_embedding: list[float], limit: int) -> list[tupl
 
 
 def hybrid_search(question: str, top_k: int = 5, candidate_pool: int = 15) -> list[RetrievedChunk]:
-    """
-    Run both lexical and semantic search, merge via RRF, return the
-    top_k fused results.
-
-    candidate_pool controls how many results each individual search
-    contributes before fusion -- a larger pool gives RRF more to work
-    with, at the cost of a bit more compute.
-    """
+    """Top `candidate_pool` from each search, fused with RRF, best `top_k` returned."""
     conn = psycopg2.connect(config.DB_DSN)
     try:
         cur = conn.cursor()
@@ -125,11 +103,11 @@ def hybrid_search(question: str, top_k: int = 5, candidate_pool: int = 15) -> li
     finally:
         conn.close()
 
-    # Build rank maps: chunk_id -> rank (1-indexed, best = rank 1)
+    # chunk_id -> rank, best = 1
     lexical_ranks = {row[0]: i + 1 for i, row in enumerate(lexical_rows)}
     semantic_ranks = {row[0]: i + 1 for i, row in enumerate(semantic_rows)}
 
-    # Keep metadata from whichever list we saw the chunk in first
+    # same chunk can appear in both lists; keep its text once
     chunk_metadata = {}
     for row in lexical_rows + semantic_rows:
         chunk_id, title, source_url, content = row

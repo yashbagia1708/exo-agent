@@ -1,20 +1,14 @@
 """
-Download confirmed exoplanet data from the NASA Exoplanet Archive.
+Download the planet table from NASA's Exoplanet Archive -> data/raw_pscomppars.csv
 
-Source: PSCompPars (Planetary Systems Composite Parameters) table —
-one row per confirmed planet, statistically de-duplicated by NASA.
-Docs: https://exoplanetarchive.ipac.caltech.edu/docs/API_PS_columns.html
-TAP service: https://exoplanetarchive.ipac.caltech.edu/docs/TAP/usingTAP.html
+    python3 data/download_data.py
 
-This script makes a single, polite, read-only GET request to NASA's public
-TAP sync endpoint and saves the raw CSV. No auth required — it's a public
-archive.
+PSCompPars: one row per confirmed planet. Public TAP API, no key needed.
+Columns: https://exoplanetarchive.ipac.caltech.edu/docs/API_PS_columns.html
 
-If this script fails (network blocked, NASA service hiccup, etc.), you can
-always get the same data manually:
-  1. Visit https://exoplanetarchive.ipac.caltech.edu/cgi-bin/TblView/nph-tblView?app=ExoTbls&config=PSCompPars
-  2. Click "Download Table" -> CSV
-  3. Save as data/raw_pscomppars.csv
+If it fails, download by hand: open the PSCompPars table at
+https://exoplanetarchive.ipac.caltech.edu/cgi-bin/TblView/nph-tblView?app=ExoTbls&config=PSCompPars
+then Download Table -> CSV, and save it as data/raw_pscomppars.csv
 """
 
 import csv
@@ -28,9 +22,7 @@ import urllib.request
 
 TAP_BASE = "https://exoplanetarchive.ipac.caltech.edu/TAP/sync"
 
-# Columns we actually use downstream (host_stars + planets schema).
-# Names verified against the archive's official column documentation:
-# https://exoplanetarchive.ipac.caltech.edu/docs/API_PS_columns.html
+# only what load_to_postgres.py uses (names checked against the column docs above)
 COLUMNS = [
     "pl_name",
     "hostname",
