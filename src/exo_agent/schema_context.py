@@ -29,7 +29,10 @@ TABLE: planets
     hostname        TEXT               -- FK to host_stars
     discoverymethod TEXT               -- e.g. 'Transit', 'Radial Velocity', 'Imaging'
     disc_year       INTEGER            -- year of discovery. Can be NULL (1 row in ~6300).
-    disc_facility   TEXT               -- observatory/mission name, e.g. 'Kepler', 'TESS'
+    disc_facility   TEXT               -- observatory/mission, full names: 'Kepler', 'K2',
+                                          'Transiting Exoplanet Survey Satellite (TESS)',
+                                          'La Silla Observatory'. Match a short name with
+                                          ILIKE, e.g. disc_facility ILIKE '%TESS%'
     pl_orbper       REAL               -- orbital period, in days
     pl_rade         REAL               -- planet radius, in Earth radii
     pl_bmasse       REAL               -- planet mass, in Earth masses
@@ -43,6 +46,23 @@ IMPORTANT LIMITS:
   presence of life. pl_eqt (equilibrium temperature) and pl_insol are the
   closest proxies for "Earth-like conditions" -- do not claim more certainty
   than these proxies support.
+- "Earth-like" means CLOSEST to Earth's values, not the highest or lowest.
+  Earth's values: pl_insol = 1.0, pl_rade = 1.0, pl_eqt about 255 K. Rank by
+  distance from those values, never by sorting a column DESC or ASC.
+  Worked example, "which planet is most Earth-like?":
+    WRONG: ORDER BY pl_insol DESC   (picks the planet with the MOST
+           starlight, i.e. the hottest, the opposite of Earth-like)
+    RIGHT: SELECT p.pl_name, p.pl_insol, p.pl_rade, p.pl_eqt, h.sy_dist
+           FROM planets p JOIN host_stars h USING (hostname)
+           WHERE p.pl_insol IS NOT NULL AND p.pl_rade IS NOT NULL
+           ORDER BY ABS(p.pl_insol - 1.0) + ABS(p.pl_rade - 1.0)
+           LIMIT 1      (LIMIT 1 for "the most", more only if a list is asked for)
+  Always return the proxy columns you ranked by, so the answer can show them.
+- "How far is it?" / "how far away" / "distance" with no other reference
+  point means distance from EARTH: host_stars.sy_dist, in parsecs (join on
+  hostname). 1 parsec = 3.26 light years. There is NO column for the
+  distance between a planet and its own star (orbital radius); if that is
+  what's asked, say so rather than substituting pl_insol or pl_orbper.
 - There is NO column for a measured radial velocity VALUE (e.g. in m/s).
   `discoverymethod` can equal the STRING 'Radial Velocity', but that only
   records WHICH detection technique found the planet -- it is not a
