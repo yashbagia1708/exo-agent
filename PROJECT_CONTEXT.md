@@ -14,7 +14,8 @@ LangGraph agent, two-stage:
 ```
 question → planner (decomposes into N sub-questions, routes each to
            SQL and/or retrieval) → for each sub-question, run inner
-           pipeline → synthesizer (if >1 sub-question) → final answer
+           pipeline → synthesizer (if >1 sub-question: stitches the
+           sub-answers verbatim, NO LLM call) → final answer
 ```
 Inner per-sub-question pipeline:
 ```
@@ -24,9 +25,9 @@ Inner per-sub-question pipeline:
 ```
 
 ## Stack
-- **Data:** NASA Exoplanet Archive (PSCompPars), 6,298 planets / 4,716
-  host stars, real download via TAP API → Postgres (`planets`,
-  `host_stars` tables)
+- **Data:** NASA Exoplanet Archive (PSCompPars), 6,451 planets / 4,847
+  host stars (Oct 2026 download; the June eval runs used 6,298 / 4,716),
+  real download via TAP API → Postgres (`planets`, `host_stars` tables)
 - **RAG corpus:** 18 Wikipedia articles (detection methods, astronomy
   concepts) → `wiki_chunks` table with pgvector embeddings + tsvector
   full-text, hybrid search via Reciprocal Rank Fusion (RRF_K=60)
@@ -37,20 +38,30 @@ Inner per-sub-question pipeline:
   NOT YET TESTED on Claude (cost decision, $5 min top-up not spent yet)
 - **Structured outputs:** Pydantic schemas throughout (SQLQuery,
   ExecutionResult, ChartSpec, Insight, RoutingPlan/DecompositionPlan,
-  SubQuestion, ResolvedEntity, SynthesizedInsight)
+  SubQuestion, ResolvedEntity)
 - **Entity resolution:** pg_trgm trigram similarity — verifies named
   planets/stars against real DB values BEFORE SQL writing (not LLM
   guessing) — fixes "Proxima Centauri" vs real "Proxima Cen" mismatches
 - **Frontend:** FastAPI backend (`frontend/server.py`) + single-page HTML
-  (`frontend/static/index.html`) — space-themed UI, shows routing summary
-  (which sub-question → SQL/Wikipedia), full step trace, sources, charts
+  (`frontend/static/index.html`), no build step. `/api/ask/stream` sends
+  server-sent events so the trace fills in step by step as each graph
+  node finishes; `/api/ask` returns one response and is the fallback.
+  Shows the plan, live steps, answer, caveat, sources, chart and SQL
+- **Infra:** Postgres 16 + pgvector + pg_trgm in Docker
+  (`docker-compose.yml`, host port 5433). `python3 launch.py` (or
+  `make demo`) starts everything: .venv, Docker DB, Ollama, models, data
+  load on first run, web UI. GitHub Actions CI runs ruff + pytest
 - **Eval:** `eval/run_eval.py` — runs each question 5x, reports PASS
-  RATES not pass/fail (non-determinism matters — proven empirically)
+  RATES not pass/fail (non-determinism matters — proven empirically).
+  Deterministic unit tests (no LLM/DB) live in `tests/` and run in CI
 
 ## Project structure
 ```
 exo-agent/
-├── README.md, FINDINGS.md          (main docs — FINDINGS.md has ~12 dated entries)
+├── README.md, FINDINGS.md          (main docs — FINDINGS.md has 22 dated entries)
+├── launch.py, Makefile             (one-command launcher, task shortcuts)
+├── docker-compose.yml, docker/     (Postgres + extensions)
+├── .github/workflows/ci.yml        (ruff + pytest on every push)
 ├── src/exo_agent/
 │   ├── graph.py                     (LangGraph wiring — planner/decompose/synthesize)
 │   ├── config.py, schemas.py, schema_context.py, sql_validator.py, retrieval.py
@@ -59,26 +70,31 @@ exo-agent/
 ├── data/ (download_data.py, load_to_postgres.py, download_wiki_corpus.py,
 │          load_wiki_to_postgres.py, data_quality_notes.md, RAG_SETUP.md)
 ├── eval/ (questions.jsonl — 14 questions across 5 tiers, run_eval.py)
+├── tests/ (test_sql_validator.py, test_synthesizer.py)
 └── frontend/ (server.py, static/index.html)
 ```
 
 ## Current known state / open issues (see FINDINGS.md for full detail)
-1. **OPEN, UNRESOLVED:** Synthesizer (multi-sub-question combiner) has
-   fabrication-adjacent bugs — once said "knowledge cutoff 2021" (fixed),
-   then on retest CONTRADICTED a correct, populated SQL result (claimed
-   "no planets found" when 200 real rows existed). Two prompt-only fixes
-   in a row didn't reliably close this. Decision: NOT testing on Claude
-   yet (cost), NOT yet rebuilding synthesizer to be mechanical/templated
-   instead of LLM-generated. This is the #1 priority next step.
+1. **FIXED (2026-10-26):** Synthesizer fabrication ("knowledge cutoff",
+   then contradicting a 200-row result). Rebuilt as a verbatim stitch with
+   no LLM call; 4 regression tests in `tests/test_synthesizer.py`. Trade-off:
+   compound answers read as separate paragraphs, and near-duplicate
+   sub-answers repeat.
 2. Tier 5 eval (refusal on unanswerable questions like "which planet has
-   life") only 1/5 pass rate — known, documented, honest limitation.
-3. No measured radial velocity column exists in schema (only
-   discoverymethod='Radial Velocity' as a label) — fixed via schema_context
-   instruction, not yet re-verified live.
+   life") only 1/5 pass rate — known, documented, honest limitation. Now
+   the top open priority.
+3. **Much improved, not solved:** radial velocity. No measured RV column
+   exists (only discoverymethod='Radial Velocity'). The real culprit was
+   insight_writer, not the SQL prompt; a worked example there took false
+   "highest RV" answers from 5/5 to 0/5 (caveat 5/5), but 1/5 runs still
+   claimed a planet "has a radial velocity measurement" while its own
+   caveat said otherwise. Not yet in eval/questions.jsonl.
 4. Cross-sub-question dependencies (e.g. "how does THIS compare to
    Earth" referring to a previous sub-question's answer) not supported —
    each sub-question runs independently. Known architectural gap.
-5. Just fixed: data was split across TWO Postgres databases (`exoagent`
+5. insight_writer only sees the first 30 rows, so a long list (e.g. 200
+   planets from 2025) shows 30 names without saying it's truncated.
+6. Fixed in June: data was split across TWO Postgres databases (`exoagent`
    vs `postgres`) due to mid-debugging `DB_DSN` export that didn't
    persist across terminal sessions — caused retrieval to silently find
    nothing. Fixed by setting DB_DSN explicitly in `.env`. Also made
@@ -91,20 +107,22 @@ exo-agent/
   app's "Open using Rosetta" setting
 - Conda env at `/Users/yashbagia/Public/anaconda3` — `python3` alone
   often resolves to wrong interpreter; use full path or `pip install -e .`
-- pgvector had to be built from source against Postgres 16 specifically
-  (Homebrew's bottle was built against 17/18 by default):
-  `PG_CONFIG=/opt/homebrew/opt/postgresql@16/bin/pg_config make install`
-- DB connection: set in `.env` as `DB_DSN=dbname=postgres user=yashbagia
-  host=localhost port=5432` — this is YOUR real working database with
-  all 3 tables (planets, host_stars, wiki_chunks)
+- DB connection: `.env` now points at the Docker database,
+  `DB_DSN=dbname=exoagent user=exoagent password=exoagent host=localhost
+  port=5433`, which has all 3 tables (planets, host_stars, wiki_chunks).
+  The old Homebrew Postgres (`dbname=postgres` on port 5432, with the
+  June data) still exists; its line is commented out in `.env`
+- History: pgvector once had to be built from source against Homebrew
+  Postgres 16; the Docker image (`pgvector/pgvector:pg16`) avoids that
 - Ollama models pulled: `qwen2.5-coder:14b` (primary), `llama3.1:8b`
   (comparison baseline), `nomic-embed-text` (embeddings)
 
 ## How to resume
-Run `PROVIDER=ollama python3 -m exo_agent.graph "<question>"` from
-project root, or start the frontend (`cd frontend && PROVIDER=ollama
-uvicorn server:app --reload --port 8420`). Postgres + `ollama serve` must
-both be running first (separate terminal for ollama serve).
+Run `python3 launch.py` (or `make demo`) from the project root: it starts
+the Docker database and Ollama if needed and opens the UI at
+http://localhost:8420. For the CLI, `.venv/bin/python -m exo_agent.graph
+"<question>"` (Postgres and Ollama must be running). `make test` runs the
+unit tests; `make eval` runs the 5x LLM eval.
 
 ## Working style established in this project
 - Every fix gets logged in FINDINGS.md with: what happened, root cause,
