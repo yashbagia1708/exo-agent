@@ -32,6 +32,8 @@ from collections import Counter, defaultdict
 
 import psycopg2
 
+from exo_agent import config
+
 DATA_PATH = pathlib.Path(__file__).parent / "raw_pscomppars.csv"
 NOTES_PATH = pathlib.Path(__file__).parent / "data_quality_notes.md"
 
@@ -49,7 +51,7 @@ PLANET_FIELDS = [
     "tran_flag",
 ]
 
-DB_DSN = "dbname=exoagent user=exoagent password=exoagent host=localhost port=5432"
+DB_DSN = config.DB_DSN  # from .env, shared with the agent
 
 SCHEMA_SQL = """
 DROP TABLE IF EXISTS planets;
@@ -265,7 +267,7 @@ def main():
         print(f"\nERROR: could not connect to Postgres: {e}", file=sys.stderr)
         print(
             "Make sure Postgres is running and a database/user matching DB_DSN exists.\n"
-            "Quick local setup (adjust as needed for your OS):\n"
+            "Easiest fix: `make db-up` (Docker). Or set it up by hand:\n"
             "  createdb exoagent\n"
             "  createuser exoagent --pwprompt   # set password 'exoagent'\n"
             "  psql exoagent -c \"GRANT ALL ON SCHEMA public TO exoagent;\"",

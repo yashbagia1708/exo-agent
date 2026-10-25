@@ -183,7 +183,7 @@ def main():
             continue
 
         if not text.strip():
-            print(f"  SKIPPED: empty extract even after redirect resolution")
+            print("  SKIPPED: empty extract even after redirect resolution")
             time.sleep(REQUEST_GAP)
             continue
 

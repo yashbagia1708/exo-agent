@@ -45,6 +45,7 @@ from typing import Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from exo_agent import config
 from exo_agent.nodes.chart_decider import decide_chart
 from exo_agent.nodes.chart_generator import generate_chart
 from exo_agent.nodes.entity_resolver import ResolvedEntity, resolve_entity
@@ -53,7 +54,6 @@ from exo_agent.nodes.insight_writer import write_insight
 from exo_agent.nodes.planner import plan_decomposition
 from exo_agent.nodes.sql_writer import write_sql
 from exo_agent.providers.factory import get_client
-from exo_agent import config
 from exo_agent.retrieval import RetrievedChunk, hybrid_search
 from exo_agent.schemas import (
     ChartSpec,
