@@ -1,0 +1,32 @@
+# Secrets -- copy .env.example to .env and fill in locally
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Data you regenerate with `make download-data`
+data/raw_pscomppars.csv
+
+# Generated charts (rendered per question at runtime)
+charts/*.png
+
+# Launcher log
+.ollama.log
+
+# Eval run outputs
+eval/results/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
