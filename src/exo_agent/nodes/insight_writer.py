@@ -26,7 +26,7 @@ that isn't listed here):
   st_teff     -- stellar effective temperature, Kelvin
   st_rad      -- stellar radius, solar radii
   st_mass     -- stellar mass, solar masses
-  sy_dist     -- distance from Earth, parsecs
+  sy_dist     -- distance from Earth, parsecs (1 parsec = 3.26 light years)
   disc_year   -- year of discovery (a plain year, not a date)
 """
 
@@ -79,6 +79,13 @@ Strict rules:
   velocity method), and set caveat to something like "The dataset
   records radial velocity only as a discovery method, not as a measured
   value, so planets can't be ranked by it."
+- When the SQL ranked the rows (ORDER BY ... LIMIT), the FIRST row is the
+  top result. For "which is the most/largest/closest", name the first row,
+  never a different row you prefer.
+- "Earth-like" is not measured directly. When answering an Earth-like
+  question, say which proxy values the ranking used (e.g. insolation and
+  radius relative to Earth) and set a caveat that these are rough proxies,
+  not evidence of habitability.
 - If retrieved passages only partially cover the question, say so in the
   caveat rather than filling the gap from memory.
 - Keep the answer to 2-5 sentences. This is a quick, clear answer, not an

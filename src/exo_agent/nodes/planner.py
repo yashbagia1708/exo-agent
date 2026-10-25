@@ -7,16 +7,27 @@ Planner: split the question into sub-questions and route each one.
 Each sub-question gets needs_sql and/or needs_retrieval (Wikipedia search).
 """
 
+import re
+
 from exo_agent import config
 from exo_agent.providers.factory import get_client
-from exo_agent.schemas import DecompositionPlan
+from exo_agent.schemas import DecompositionPlan, SubQuestion
+
+# a later part saying "it", "its" or "this (largest) planet" depends on an earlier one.
+# "this/that" only count before a noun like planet/star (up to 2 words between),
+# so "this year" or "planets that orbit..." don't trigger it
+BACK_REFERENCE = re.compile(
+    r"\b(it|its|they|them|their)\b"
+    r"|\b(this|that|these|those|the same) (\w+ ){0,2}(planet|exoplanet|star|system|world|one|object)s?\b",
+    re.IGNORECASE,
+)
 
 SYSTEM_PROMPT = """You analyze a question about exoplanets and decide two \
 things: how many genuinely distinct questions are actually being asked, \
 and which tool(s) each one needs.
 
 Two tools are available:
-1. SQL over a structured database of 6,298 confirmed exoplanets and their \
+1. SQL over a structured database of 6,000+ confirmed exoplanets and their \
 host stars (counts, filters, comparisons, trends, specific named planets/ \
 stars -- anything with a real numeric or categorical answer in the data).
 2. Hybrid search (retrieval) over a small corpus of Wikipedia articles \
@@ -32,6 +43,12 @@ than Earth discovered after 2015" is one sub-question with two filters, \
 not two sub-questions. If a sub-question could plausibly be answered by \
 SQL alone, prefer needs_sql=true, needs_retrieval=false even if the topic \
 sounds conceptual at a glance.
+
+Never split off a part that depends on another part's answer ("which \
+planet is X, and how far is it?" is ONE sub-question).
+
+Keep the user's meaning when you rewrite a sub-question. "How far is it" \
+with no reference point means distance from Earth, not from its host star.
 """
 
 USER_PROMPT = """Question: "{question}"
@@ -39,6 +56,39 @@ USER_PROMPT = """Question: "{question}"
 Decide how many distinct sub-questions this actually contains, and which \
 tool(s) each needs.
 """
+
+
+def merge_dependent_parts(plan: DecompositionPlan) -> DecompositionPlan:
+    """
+    Fold any part that points back at an earlier one into it.
+
+        ["Which star has the most planets?", "What spectral type is this star?"]
+        -> ["Which star has the most planets, and what spectral type is this star?"]
+
+    Sub-questions run separately, so "this star" on its own has nothing to
+    refer to; it used to guess (once it searched for Proxima). The model
+    split these 9/9 times even with a prompt rule against it, so it's
+    enforced here.
+    """
+    merged: list[SubQuestion] = []
+    folded = []
+    for i, sq in enumerate(plan.sub_questions):
+        if merged and BACK_REFERENCE.search(sq.text):
+            prev = merged[-1]
+            text = f"{prev.text.rstrip(' ?.')}, and {sq.text[0].lower()}{sq.text[1:]}"
+            merged[-1] = SubQuestion(
+                text=text,
+                needs_sql=prev.needs_sql or sq.needs_sql,
+                needs_retrieval=prev.needs_retrieval or sq.needs_retrieval,
+            )
+            folded.append(i + 1)
+        else:
+            merged.append(sq)
+
+    if not folded:
+        return plan
+    note = f" (Part {', '.join(map(str, folded))} refers back to an earlier part, so they're answered together.)"
+    return DecompositionPlan(sub_questions=merged, reasoning=plan.reasoning + note)
 
 
 def plan_decomposition(question: str) -> DecompositionPlan:
@@ -52,7 +102,7 @@ def plan_decomposition(question: str) -> DecompositionPlan:
             {"role": "user", "content": USER_PROMPT.format(question=question)},
         ],
     )
-    return result
+    return merge_dependent_parts(result)
 
 
 if __name__ == "__main__":
