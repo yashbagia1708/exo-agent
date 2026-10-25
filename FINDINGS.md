@@ -1025,18 +1025,121 @@ since it looked unexpectedly sparse compared to other steps in testing
 also have been the user running a slightly earlier frontend build than
 what was in active development at the time.
 
+---
 
+## 2026-10-26 — Synthesizer rebuilt as a mechanical stitch (option 2), no LLM call
 
+The open synthesizer bug from 2026-06-23 ("knowledge cutoff" disclaimer,
+then a false "no 2025 discoveries" over 200 real rows) is now addressed
+by taking option (2) from that entry: the synthesizer no longer asks a
+model to rewrite the sub-answers. `synthesizer_node()` in `graph.py` now
+joins each sub-answer's text verbatim, one paragraph per sub-question in
+plan order, merges every caveat (deduplicated, order kept) and every
+source URL (same), and says plainly which part failed if a sub-question
+errored (`I couldn't answer "<sub-question>": <error>.`) instead of
+dropping it. A single sub-question still passes straight through, as
+before.
 
+**Why option (2) rather than option (1):** option (1) (re-run the repro on
+Claude to see whether this is a capability ceiling) still costs money,
+and its best case only moves the same risk to a more expensive model.
+The deeper point from the 06-23 re-test was that two prompt-level fixes
+in a row didn't hold. Removing the generative step takes away the
+failure mode entirely: a step that only concatenates already-grounded
+text cannot contradict it, invent a disclaimer, or hedge a correct
+answer because a neighbouring one was weak.
 
+**The trade-off, stated honestly:** the combined answer is less fluent.
+It reads as separate paragraphs rather than one flowing reply, and the
+2026-06-23 "don't expose the Q&A structure" polish no longer applies
+because there is no prose rewrite to polish. For a system whose core
+claim is grounding, that's the right trade, and it also removes one LLM
+call (and its latency) from every compound question.
 
+**Also removed:** `SYNTHESIS_SYSTEM_PROMPT`, `SYNTHESIS_USER_PROMPT` and
+the now-unused `SynthesizedInsight` schema.
 
+**Regression coverage, finally automated:** the 06-23 entry noted there
+was no automated coverage for synthesizer-level fabrication.
+`tests/test_synthesizer.py` adds 4 deterministic tests (no model, no
+database) that replay the 06-23 repro shape and assert: the populated
+2025 sub-answer survives verbatim and comes first; none of "knowledge
+cutoff", "as an AI", "training data" or "no exoplanets" appears; nothing
+is added beyond the sub-answers; caveats and sources carry over
+deduplicated; a failed part is named rather than dropped; and synthesis
+never calls the LLM (the client factory is patched to raise). They run
+in CI on every push.
 
+**What this does NOT fix:** the radial-velocity substitution itself
+happens upstream, in the SQL writer and insight writer, not in the
+synthesizer. See the next entry.
 
+---
 
+## 2026-10-26 — Radial-velocity substitution traced to the insight writer, not the SQL prompt
 
+**What happened:** with the synthesizer no longer rewriting anything,
+any remaining dishonesty in a compound answer has to come from a
+sub-answer. On the radial-velocity repro, the insight writer named a
+planet as having "the highest radial velocity" from rows that contain
+no velocity data at all, only `discoverymethod = 'Radial Velocity'` and
+whatever column the SQL happened to sort by.
 
+**Why it happened:** the "no measured radial velocity column" rule added
+on 2026-06-23 lives in `schema_context.py`, which only the SQL writer
+sees. The insight writer, the node that actually phrases the claim to
+the user, had no equivalent instruction, so even when the SQL was a
+reasonable best effort the narration presented it as a real ranking.
 
+**Fix:** added a worked example to `insight_writer.py`'s system prompt in
+the same WRONG/RIGHT pattern as the surface-temperature/`pl_eqt` rule:
+never rank or pick a highest/lowest by a quantity that isn't a column in
+the given rows. The RV case is the example: the answer should say the
+dataset has no radial velocity measurements, describe what the rows do
+show (the discovery method), and set a caveat.
+
+**Live results (qwen2.5-coder:14b, local, 5 runs each of "Which
+exoplanet has the highest radial velocity?"):**
+
+```
+                                  before fix   after fix
+named a planet as "highest RV"       5/5          0/5
+caveat set                           0/5          5/5
+other false claim in the answer      0/5          1/5
+```
+
+The "before" runs used the same code with only the new rule removed from
+the prompt, run on 2026-10-26 against the same database. Every one
+answered "The exoplanet with the highest radial velocity is <planet>"
+with no caveat, even though the SQL had sorted by planet mass
+(`pl_bmasse`) or not sorted at all. The SQL writer still produces the
+same kind of query after the fix (sorting RV-discovered planets by mass,
+orbital period or temperature); what changed is that the narration no
+longer presents it as a ranking.
+
+The one failure after the fix is a new one worth keeping: run 3 said
+"WASP-107 c has a radial velocity measurement" (false, there are no
+such measurements), while its caveat correctly said the opposite. The
+caveat and the answer disagreed within the same Insight.
+
+**The original 3-part repro, re-run end to end:** no "knowledge cutoff",
+and the 2025 sub-answer (200 rows) reported as a real list rather than
+contradicted. Both radial-velocity parts declined to rank, with a
+caveat. Two rough edges showed up: (1) sub-questions 2 and 3 produced
+near-identical answers, so the same sentence appears twice in the
+combined answer (a direct consequence of stitching verbatim); (2) the
+2025 list shows 30 planet names without saying there are 200 in total,
+because insight_writer only sees the first 30 rows (this predates the
+synthesizer change). Neither is a grounding
+failure, but (2) reads as if 30 were the full list.
+
+**Honest status:** strong improvement on a measured 5-run sample, not a
+solved problem. Ranking by a non-existent quantity went from 5/5 to 0/5,
+but 1/5 runs still made a different false claim about the same missing
+data. Open follow-ups: add this question to `eval/questions.jsonl` so the
+rate is tracked across future changes; consider a check that flags an
+Insight whose answer contradicts its own caveat; and pass the total row
+count into insight_writer so a truncated list says so.
 
 ---
 
