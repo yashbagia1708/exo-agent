@@ -20,7 +20,7 @@ from typing import Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from exo_agent.nodes.chart_decider import decide_chart
+from exo_agent.nodes.chart_decider import chart_problem, decide_chart
 from exo_agent.nodes.chart_generator import generate_chart
 from exo_agent.nodes.entity_resolver import ResolvedEntity, resolve_entity
 from exo_agent.nodes.executor import ExecutionResult, execute_sql
@@ -46,6 +46,7 @@ class SubQuestionState(TypedDict, total=False):
     execution_result: Optional[ExecutionResult]
     chart_spec: Optional[ChartSpec]
     chart_path: Optional[str]
+    chart_skipped: Optional[str]  # why a suggested chart wasn't drawn
     retrieved_chunks: Optional[list[RetrievedChunk]]
     retrieval_error: Optional[str]
     insight: Optional[Insight]
@@ -95,6 +96,16 @@ def chart_decider_node(state: SubQuestionState) -> SubQuestionState:
         return {}
     exec_result = state["execution_result"]
     spec = decide_chart(state["sub_question"].text, exec_result.columns, exec_result.rows)
+
+    # the model sometimes picks a chart with no y-axis, or a text column as y;
+    # check it against the real rows and drop it if it can't be drawn
+    problem = chart_problem(spec, exec_result.columns, exec_result.rows)
+    if problem:
+        suggested = f"{spec.chart_type} chart (x = {spec.x_field}, y = {spec.y_field})"
+        return {
+            "chart_spec": ChartSpec(chart_type="none"),
+            "chart_skipped": f"The model suggested a {suggested}, but {problem}.",
+        }
     return {"chart_spec": spec}
 
 
@@ -108,7 +119,7 @@ def chart_generator_node(state: SubQuestionState) -> SubQuestionState:
         return {"chart_path": str(path) if path else None}
     except ValueError as e:
         print(f"  [chart_generator] Skipping chart due to error: {e}")
-        return {"chart_path": None}
+        return {"chart_path": None, "chart_skipped": f"Rendering failed: {e}"}
 
 
 def retriever_node(state: SubQuestionState) -> SubQuestionState:
