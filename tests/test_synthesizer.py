@@ -1,13 +1,7 @@
 """
-Regression tests for graph.synthesizer_node, replaying the two synthesis
-failures logged in FINDINGS.md on 2026-06-23:
-
-  1. An invented "As of my knowledge cutoff in 2021..." disclaimer.
-  2. "There are no exoplanets discovered in 2025" when the sub-answer was
-     built from 200 real rows.
-
-The synthesizer no longer calls an LLM, so these are deterministic: no
-model, no database.
+Regression tests for synthesizer_node, replaying the 2026-06-23 bugs:
+an invented "knowledge cutoff" line, and "no 2025 planets" over 200 real rows.
+No model or database needed: `pytest -q`.
 """
 
 import pytest
@@ -40,7 +34,7 @@ KEPLER_URL = "https://en.wikipedia.org/wiki/Kepler_space_telescope"
 
 @pytest.fixture(autouse=True)
 def no_llm(monkeypatch):
-    """Fail loudly if synthesis ever goes back to calling the model."""
+    """Synthesis must never call the model again; make any call blow up."""
 
     def _boom(*args, **kwargs):
         raise AssertionError("synthesizer_node must not call the LLM")
@@ -63,7 +57,7 @@ def _synthesize(question, *sub_results):
 
 
 def test_compound_repro_keeps_populated_answer_and_adds_nothing():
-    # The exact 2026-06-23 repro: one good sub-answer, one unanswerable one
+    # the 2026-06-23 repro: one good sub-answer, one unanswerable
     out = _synthesize(
         "Give me a list of exoplanets discovered in 2025. In general, which "
         "exoplanet has the highest radial velocity?",
@@ -76,7 +70,7 @@ def test_compound_repro_keeps_populated_answer_and_adds_nothing():
     assert answer.index(ANSWER_2025) < answer.index(ANSWER_RV)
     for forbidden in ("knowledge cutoff", "as an ai", "training data", "no exoplanets"):
         assert forbidden not in answer.lower()
-    # Nothing beyond the two sub-answers and the separator between them
+    # exactly the two answers and a blank line, nothing added
     assert answer == f"{ANSWER_2025}\n\n{ANSWER_RV}"
 
 

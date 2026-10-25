@@ -1,26 +1,15 @@
 """
-The eval harness: runs every question in eval/questions.jsonl multiple
-times each (default 5) and reports a pass rate per question, not a
-single pass/fail.
+Eval: run every question in eval/questions.jsonl N times (default 5) and
+report a pass rate per question, e.g. "4/5".
 
-LLM behavior on identical input is not deterministic. A single clean run
-of a question can be misleading -- a prompt fix can genuinely improve a
-model's odds of getting something right without making it reliable every
-time. Running each question 5x and reporting, for example, "4/5 passed"
-is the honest way to represent that.
+One clean run proves little, because the model isn't deterministic. The
+checks are simple on purpose: does the SQL contain X, is the caveat set,
+does the answer decline. No LLM judge.
 
-This harness is deliberately simple string/structural checking, not deep
-semantic scoring -- it checks things like "does the SQL contain this
-substring" or "is the caveat field non-null", which is enough to catch
-known regression patterns without building a much heavier LLM-as-judge
-scoring system. That's a reasonable next iteration, not a requirement for
-this to be useful now.
-
-Usage:
-    PROVIDER=ollama python3 eval/run_eval.py
-    PROVIDER=ollama python3 eval/run_eval.py --runs 3          # faster, rougher
-    PROVIDER=ollama python3 eval/run_eval.py --tier 1           # only tier 1 questions
-    PROVIDER=ollama python3 eval/run_eval.py --id t1_total_count  # just one question
+    python3 eval/run_eval.py
+    python3 eval/run_eval.py --runs 3              # quicker, rougher
+    python3 eval/run_eval.py --tier 1              # one tier
+    python3 eval/run_eval.py --id t1_total_count   # one question
 """
 
 import argparse
@@ -30,8 +19,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 
-# Allow running this script directly (python3 eval/run_eval.py) without
-# having installed the package -- add src/ to the path if needed.
+# lets `python3 eval/run_eval.py` work without `pip install -e .`
 _SRC = pathlib.Path(__file__).parent.parent / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
@@ -72,7 +60,7 @@ class QuestionReport:
 
 
 def _check_sql_stage(spec: dict) -> RunResult:
-    """Run sql_writer (+ optionally executor) and check string-level expectations."""
+    """sql_writer (+ executor if asked) -> string checks on the SQL."""
     start = time.time()
     try:
         sql_result = write_sql(spec["question"])
@@ -95,9 +83,7 @@ def _check_sql_stage(spec: dict) -> RunResult:
 
     repair_attempts = 0
     if not failures:
-        # Also verify it actually executes -- structural checks alone
-        # don't catch semantic errors, e.g. a type mismatch that's valid
-        # SQL syntax but fails at runtime against the real schema.
+        # SQL can look right and still fail in Postgres (wrong types), so run it
         exec_result = execute_sql(sql_result.sql, spec["question"])
         repair_attempts = exec_result.repair_attempts
         if not exec_result.success:
@@ -111,28 +97,13 @@ def _check_sql_stage(spec: dict) -> RunResult:
 
 def _check_behavior_stage(spec: dict) -> RunResult:
     """
-    Run the FULL pipeline (sql_writer -> executor -> insight_writer) and
-    check whether the final answer appropriately declines or caveats,
-    per spec["expected_behavior"].
+    Full pipeline (sql_writer -> executor -> insight_writer), then check
+    the final answer. For tier 5 ("which planet has confirmed life?"),
+    where the SQL can run fine and the only thing to judge is the answer.
 
-    This exists specifically for tier-5 questions like "which planet has
-    confirmed life on it" -- there's no SQL-level string check that can
-    capture "did the agent appropriately refuse to overclaim", since the
-    SQL itself might execute fine (e.g. a query that just returns NULL
-    columns or an empty/meaningless result). The only place this can
-    actually be judged is the final Insight object, after real data has
-    come back from the database.
-
-    Two behaviors are supported:
-      - "should_decline_or_caveat": caveat must be non-null, OR the answer
-        itself must contain a hedge phrase (covers both Insight design
-        paths -- a model might fold the caveat into the main answer text
-        instead of using the caveat field, which isn't wrong, just a
-        different valid shape).
-      - "should_decline": the answer must contain an explicit refusal/
-        no-data phrase, not just any caveat -- this is for genuinely
-        unanswerable questions (e.g. "which planet has life"), where a
-        caveated-but-still-confident answer isn't good enough.
+        should_decline_or_caveat  caveat set, or a hedge phrase in the answer
+        should_decline            the answer itself must say there's no data;
+                                  a caveat on a confident answer isn't enough
     """
     start = time.time()
     HEDGE_PHRASES = [
@@ -183,7 +154,7 @@ def _check_behavior_stage(spec: dict) -> RunResult:
 
 
 def _check_insight_stage(spec: dict) -> RunResult:
-    """Run write_insight() directly against synthetic rows and check expectations."""
+    """write_insight() on the spec's fake rows -> check the answer/caveat."""
     start = time.time()
     try:
         result = write_insight(spec["question"], spec["synthetic_rows"])
@@ -211,7 +182,7 @@ def run_question(spec: dict, num_runs: int) -> QuestionReport:
         question_id=spec["id"], tier=spec["tier"], question_text=spec["question"]
     )
 
-    stage = spec.get("stage", "sql")  # default: full SQL pipeline check
+    stage = spec.get("stage", "sql")
 
     for i in range(num_runs):
         if stage == "insight_writer":

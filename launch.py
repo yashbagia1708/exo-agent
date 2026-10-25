@@ -1,25 +1,15 @@
 """
-One command to run the whole exo-agent demo:
+Start everything the demo needs, then open the browser.
 
     python3 launch.py            (or: make demo)
+    python3 launch.py --port 8421 --no-browser
+    python3 launch.py --reload   (restart the server on code changes)
 
-Starts everything the agent needs, skipping whatever is already running:
+Steps, each skipped if already done/running:
+    .venv -> .env -> Postgres (Docker) -> Ollama + models -> load data (first run) -> web UI
 
-  1. a project virtualenv (.venv) with the package installed
-  2. .env, copied from .env.example on first run
-  3. Postgres in Docker (pgvector + pg_trgm), via docker-compose.yml
-  4. the Ollama server, plus the chat and embedding models
-  5. the NASA tables and the wiki corpus, loaded on first run only
-  6. the web UI, opened in your browser
-
-Ctrl+C stops the web server and any Ollama process this script started.
-Postgres is left running (it's cheap and keeps your data warm); stop it
-with `make db-down`.
-
-Options:
-    --port 8420      web UI port
-    --no-browser     don't open a browser tab
-    --reload         restart the server when code changes (development)
+Ctrl+C stops the web server and any Ollama this script started.
+Postgres keeps running; `make db-down` stops it.
 """
 
 import argparse
@@ -40,11 +30,11 @@ VENV = ROOT / ".venv"
 VENV_PYTHON = VENV / "bin" / "python"
 EMBED_MODEL = "nomic-embed-text"
 
-# Processes this script started, stopped again on exit
+# processes we started, so we can stop them on exit
 _children: list[subprocess.Popen] = []
 
 
-# --- Output helpers -------------------------------------------------------------
+# ------------------------------------------------------------------ output helpers
 
 
 def ok(msg: str) -> None:
@@ -67,7 +57,7 @@ def run(cmd: list[str], **kwargs) -> None:
     """Run a setup command, streaming its output, and stop on failure."""
     result = subprocess.run(cmd, cwd=ROOT, text=True, **kwargs)
     if result.returncode != 0:
-        # Quiet steps capture their output; show it now that it matters
+        # quiet steps hid their output; show it now
         for captured in (result.stdout, result.stderr):
             if captured:
                 print(captured, file=sys.stderr)
@@ -96,7 +86,7 @@ def port_in_use(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
-# --- 1. Virtualenv ----------------------------------------------------------------
+# ------------------------------------------------------------------ virtualenv
 
 
 def ensure_venv() -> None:
@@ -111,7 +101,7 @@ def ensure_venv() -> None:
     os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), str(ROOT / "launch.py"), *sys.argv[1:]])
 
 
-# --- 2. .env ------------------------------------------------------------------------
+# ------------------------------------------------------------------ .env
 
 
 def ensure_env_file() -> None:
@@ -121,7 +111,7 @@ def ensure_env_file() -> None:
         ok("Created .env from .env.example")
 
 
-# --- 3. Postgres ------------------------------------------------------------------
+# ------------------------------------------------------------------ postgres
 
 
 def _dsn_parts(dsn: str) -> dict[str, str]:
@@ -142,8 +132,7 @@ def ensure_postgres(dsn: str) -> None:
         ok("Postgres is running")
         return
 
-    # Only manage the container when DB_DSN points at it; a custom
-    # database elsewhere is the user's to start.
+    # only touch Docker if DB_DSN points at our container; any other database is yours to start
     parts = _dsn_parts(dsn)
     compose_port = os.getenv("POSTGRES_PORT", "5433")
     if parts.get("host") not in ("localhost", "127.0.0.1") or parts.get("port") != compose_port:
@@ -174,7 +163,7 @@ def ensure_postgres(dsn: str) -> None:
     ok("Postgres is running (Docker, port %s)" % compose_port)
 
 
-# --- 4. Ollama --------------------------------------------------------------------
+# ------------------------------------------------------------------ ollama
 
 
 def ensure_ollama(base_url: str, chat_model: str | None) -> None:
@@ -208,7 +197,7 @@ def ensure_ollama(base_url: str, chat_model: str | None) -> None:
     ok(f"Models ready: {', '.join(wanted)}")
 
 
-# --- 5. Data ------------------------------------------------------------------------
+# ------------------------------------------------------------------ data
 
 
 def _table_rows(dsn: str, table: str) -> int:
@@ -241,7 +230,7 @@ def ensure_data(dsn: str) -> None:
     ok(f"Data loaded: {planets:,} planets, {chunks:,} wiki passages")
 
 
-# --- 6. Web server ----------------------------------------------------------------
+# ------------------------------------------------------------------ web server
 
 
 def start_server(port: int, reload: bool, open_browser: bool) -> subprocess.Popen:
@@ -278,7 +267,7 @@ def shutdown() -> None:
     _children.clear()
 
 
-# --- Main -------------------------------------------------------------------------
+# ------------------------------------------------------------------ main
 
 
 def main() -> None:
@@ -293,7 +282,7 @@ def main() -> None:
     ensure_venv()
     ensure_env_file()
 
-    # Imported only now: config reads .env, and needs the venv's packages.
+    # import late: needs the venv's packages and the .env we may have just created
     sys.path.insert(0, str(ROOT / "src"))
     from exo_agent import config
 

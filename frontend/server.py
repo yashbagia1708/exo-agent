@@ -1,27 +1,13 @@
 """
-Minimal API server exposing the real exo-agent graph to the frontend.
+API for the web UI. Calls the same graph as the CLI and the eval; no
+separate demo logic.
 
-This does NOT reimplement any agent logic -- it imports and calls
-src/exo_agent/graph.py directly, the exact same code path used by the
-CLI (`python3 -m exo_agent.graph "..."`) and the eval harness. The
-frontend is a thin client on top of the same agent that's been tested
-throughout this project; it doesn't talk to a different, simplified
-version of it.
+    POST /api/ask          whole run, one JSON response
+    POST /api/ask/stream   server-sent events: trace step by step, then the same final response
+    GET  /api/health       model + row counts
+    GET  /api/topics       Wikipedia articles in the corpus
 
-Updated for the decomposition-aware graph: a question can now produce
-MULTIPLE sub-question results (each with its own SQL/retrieval/insight),
-combined into one final answer. The trace reflects this -- each
-sub-question gets its own numbered group of steps, followed by a
-combining step if there was more than one.
-
-Two ways to ask:
-  - POST /api/ask         one JSON response when the whole run finishes
-  - POST /api/ask/stream  server-sent events: the trace grows step by step
-                          as each graph node finishes, then the same final
-                          response /api/ask would have returned
-
-Run with:
-    python3 launch.py          (starts Postgres + Ollama too)
+    python3 launch.py                                   (starts Postgres + Ollama too)
     uvicorn frontend.server:app --reload --port 8420
 """
 
@@ -66,9 +52,7 @@ class TraceStep(BaseModel):
 
 
 class SubQuestionSummary(BaseModel):
-    """One row of the glanceable 'how it was split' summary -- separate
-    from the full step-by-step trace, meant to be readable at a glance
-    without expanding anything."""
+    """One row of the 'how it was split' summary: sub-question, tools used, SQL, articles."""
 
     text: str
     used_sql: bool
@@ -83,9 +67,9 @@ class AskResponse(BaseModel):
     answer: str | None = None
     caveat: str | None = None
     sources: list[str] = []
-    sql_statements: list[str] = []  # one per sub-question that used SQL
-    row_count: int | None = None  # total across all sub-questions
-    chart_base64: str | None = None  # first chart found across sub-questions, if any
+    sql_statements: list[str] = []  # one per sub-question that ran SQL
+    row_count: int | None = None  # summed over sub-questions
+    chart_base64: str | None = None  # first chart, if any
     trace: list[TraceStep] = []
     routing_summary: list[SubQuestionSummary] = []
     decomposition_reasoning: str | None = None
@@ -97,20 +81,12 @@ class AskResponse(BaseModel):
 
 def _build_trace(result: dict) -> list[TraceStep]:
     """
-    Turn the final graph state into a human-readable trace of what the
-    agent actually did, in order -- across potentially multiple
-    sub-questions. This reads real fields off the same state objects
-    graph.py produces; it is not a separate, prettified description of
-    what happened.
+    Graph state -> numbered steps for the UI, read straight off the state
+    (works on partial state too, for the live stream).
 
-    Surfaces two of the agent's more sophisticated decisions explicitly:
-      - The planner's per-sub-question tool routing decision (why SQL
-        and/or retrieval was chosen for this specific sub-question, not
-        just that decomposition happened).
-      - Entity resolution: when a sub-question names a specific planet or
-        star, the real trigram-similarity match found against the
-        database before the SQL writer used it -- verifying named
-        entities against ground truth rather than guessing at spelling.
+    Per sub-question: routing -> entity match -> SQL -> run/repair ->
+    retrieval -> chart decision -> sub-answer. Then "combined" if there
+    was more than one.
     """
     steps: list[TraceStep] = []
 
@@ -136,7 +112,7 @@ def _build_trace(result: dict) -> list[TraceStep]:
         prefix = f"Sub-question {i + 1}: " if multi else ""
         sub_q = decomposition.sub_questions[i] if decomposition else None
 
-        # --- Routing decision for this specific sub-question ---
+        # why this sub-question went to SQL and/or Wikipedia
         if sub_q is not None:
             tools = []
             if sub_q.needs_sql:
@@ -159,7 +135,7 @@ def _build_trace(result: dict) -> list[TraceStep]:
             )
             step_counter += 1
 
-        # --- Entity resolution, if a named planet/star was checked ---
+        # named planet/star -> matched stored name (or no match)
         entity = sub_result.get("resolved_entity")
         if entity:
             if entity.resolved_name:
@@ -191,7 +167,7 @@ def _build_trace(result: dict) -> list[TraceStep]:
                 )
             step_counter += 1
 
-        # --- SQL writing ---
+        # SQL as written
         sql_query = sub_result.get("sql_query")
         if sql_query:
             steps.append(
@@ -202,7 +178,7 @@ def _build_trace(result: dict) -> list[TraceStep]:
             )
             step_counter += 1
 
-        # --- Execution, with repair attempts called out explicitly ---
+        # ran first time, or needed repairs
         exec_result = sub_result.get("execution_result")
         if exec_result:
             if exec_result.repair_attempts:
@@ -226,7 +202,7 @@ def _build_trace(result: dict) -> list[TraceStep]:
                 )
             step_counter += 1
 
-        # --- Retrieval ---
+        # hybrid search hits, or the retrieval error
         chunks = sub_result.get("retrieved_chunks")
         retrieval_error = sub_result.get("retrieval_error")
 
@@ -262,7 +238,7 @@ def _build_trace(result: dict) -> list[TraceStep]:
             )
             step_counter += 1
 
-        # --- Chart decision ---
+        # chart or no chart
         chart_spec = sub_result.get("chart_spec")
         if chart_spec:
             if chart_spec.chart_type != "none":
@@ -286,7 +262,7 @@ def _build_trace(result: dict) -> list[TraceStep]:
                 )
             step_counter += 1
 
-        # --- Sub-answer grounding ---
+        # sub-answer written
         sub_insight = sub_result.get("insight")
         if sub_insight:
             steps.append(
@@ -300,7 +276,7 @@ def _build_trace(result: dict) -> list[TraceStep]:
             )
             step_counter += 1
 
-    # Only once synthesis has run -- the live stream rebuilds this trace mid-run
+    # only after synthesis ran; the stream rebuilds this mid-run
     if multi and result.get("final_insight"):
         num_sources = len(set(
             src for r in sub_results for src in (r.get("insight").sources_used if r.get("insight") else [])
@@ -321,14 +297,7 @@ def _build_trace(result: dict) -> list[TraceStep]:
 
 
 def _build_routing_summary(result: dict) -> list[SubQuestionSummary]:
-    """
-    Builds the compact, glanceable 'how it was split' summary shown above
-    the full trace -- one row per sub-question, showing in plain sight
-    which tool(s) it used, what SQL ran (if any), and which Wikipedia
-    articles were drawn on (if any). This is deliberately separate from
-    _build_trace(): the trace is for someone who wants every step, this
-    is for someone who just wants the routing story at a glance.
-    """
+    """One SubQuestionSummary per sub-question (the short version of the trace)."""
     decomposition = result.get("decomposition")
     sub_results = result.get("sub_results", [])
 
@@ -344,15 +313,14 @@ def _build_routing_summary(result: dict) -> list[SubQuestionSummary]:
                 used_sql=bool(exec_result),
                 used_retrieval=bool(chunks),
                 sql=exec_result.sql_used if exec_result else None,
-                retrieved_titles=list({c.title for c in chunks}),  # de-duplicated, order not critical here
+                retrieved_titles=list({c.title for c in chunks}),  # dedupe; order doesn't matter
             )
         )
     return summaries
 
 
 def _build_response(question: str, result: dict, elapsed: float) -> AskResponse:
-    """The final answer payload, shared by /api/ask and /api/ask/stream so
-    both endpoints describe a finished run identically."""
+    """Final graph state -> AskResponse. Both endpoints use this, so they always agree."""
     if result.get("error"):
         return AskResponse(
             question=question,
@@ -418,8 +386,7 @@ def ask_question(req: AskRequest) -> AskResponse:
     return _build_response(req.question, result, time.time() - start)
 
 
-# What the agent is about to do after each inner-graph node finishes --
-# shown as the live "working on..." line while the next node runs.
+# node that just finished -> what to show as "working on..." next
 _NEXT_ACTIVITY = {
     "sql_writer": "Running the query against Postgres",
     "executor": "Deciding whether a chart would help",
@@ -436,11 +403,13 @@ def _sse(event: dict) -> str:
 
 def _stream_run(question: str):
     """
-    Runs the same graph pieces ask() runs -- decomposer, the compiled
-    per-sub-question graph, synthesizer -- but streams the inner graph so
-    every finished node is reported as it happens. After each node the
-    trace is rebuilt from the partial state with _build_trace(), so the
-    live trace and the final one come from the same code.
+    Same steps as ask() (decomposer -> inner graph per sub-question ->
+    synthesizer), but streams the inner graph and sends events as it goes:
+
+        activity  what's running now
+        plan      the sub-questions and their routing
+        trace     full trace so far, rebuilt with _build_trace after each node
+        result    the final AskResponse
     """
     start = time.time()
     result: dict = {"question": question, "sub_results": []}
@@ -519,7 +488,7 @@ def ask_question_stream(req: AskRequest) -> StreamingResponse:
 
 @lru_cache(maxsize=1)
 def _dataset_stats() -> dict:
-    """Real row counts for the header, so the UI never hard-codes them."""
+    """Row counts for the UI header. Cached; restart the server after reloading data."""
     with psycopg2.connect(config.DB_DSN, connect_timeout=3) as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT (SELECT count(*) FROM planets), (SELECT count(*) FROM host_stars), "
@@ -540,14 +509,7 @@ def health():
 
 @app.get("/api/topics")
 def topics():
-    """
-    Returns the REAL list of Wikipedia articles currently loaded into
-    the hybrid-search corpus, read directly from the manifest written by
-    data/download_wiki_corpus.py. This is deliberately not a hand-typed
-    list in the frontend -- if the corpus changes (more articles added,
-    one fails to download), this endpoint reflects that automatically
-    instead of silently going stale.
-    """
+    """Articles in the corpus, read from the downloader's manifest (not hard-coded)."""
     manifest_path = pathlib.Path(__file__).parent.parent / "data" / "wiki_corpus" / "_manifest.json"
     if not manifest_path.exists():
         return {"topics": [], "note": "Wiki corpus not yet downloaded -- run data/download_wiki_corpus.py"}
@@ -559,8 +521,7 @@ def topics():
     return {"topics": topics_list, "count": len(topics_list)}
 
 
-# Serve the static frontend (index.html, etc.) from the same server,
-# so this is a single `uvicorn` command to run the whole demo.
+# serve index.html from here too, so one process runs the whole demo
 _STATIC_DIR = pathlib.Path(__file__).parent / "static"
 if _STATIC_DIR.exists():
     app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="static")

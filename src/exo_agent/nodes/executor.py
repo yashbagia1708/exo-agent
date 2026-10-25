@@ -1,17 +1,10 @@
 """
-The executor node: runs a validated SQLQuery against the real Postgres
-database and returns results, OR repairs the query if Postgres itself
-rejects it.
+Executor: run the SQL, and if Postgres rejects it, ask the model to fix it.
 
-This is the second half of the project's repair loop. sql_validator.py
-(used in sql_writer.py) catches structural malformation -- truncated
-CTEs, unbalanced parens -- before the database is ever touched. This
-node catches everything else: semantic errors (e.g. EXTRACT(YEAR FROM
-an_integer_column), a type mismatch that's structurally valid SQL but
-fails at execution), nonexistent columns, bad joins, and so on.
-Postgres's own error message is the ground truth here -- it's fed
-straight back to the model, the same retry pattern as the structural
-repair loop.
+sql_writer already caught structural problems (truncation, brackets).
+This catches what only the database can see: wrong types, e.g.
+EXTRACT(YEAR FROM disc_year) on an integer, missing columns, bad joins.
+Postgres's error message goes straight back to the model for the retry.
 """
 
 from dataclasses import dataclass, field
@@ -24,7 +17,7 @@ from exo_agent.providers.factory import get_client
 from exo_agent.schema_context import get_schema_context
 from exo_agent.schemas import SQLRepair
 
-MAX_ROWS_RETURNED = 200  # safety cap so a broad query can't flood the agent's context
+MAX_ROWS_RETURNED = 200  # cap so a broad query doesn't flood the prompt
 
 REPAIR_SYSTEM_PROMPT = """You are a careful SQL analyst working with a PostgreSQL \
 database of confirmed exoplanets. Your previous query failed when actually \
@@ -60,7 +53,7 @@ class ExecutionResult:
 
 
 def _run_query(sql: str) -> tuple[list[str], list[dict]]:
-    """Execute SQL and return (column_names, rows_as_dicts). Raises psycopg2 errors as-is."""
+    """-> (column names, rows as dicts). psycopg2 errors bubble up."""
     conn = psycopg2.connect(config.DB_DSN)
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -74,19 +67,16 @@ def _run_query(sql: str) -> tuple[list[str], list[dict]]:
 
 def execute_sql(sql: str, question: str, max_repair_attempts: int | None = None) -> ExecutionResult:
     """
-    Execute sql. If Postgres raises an error, feed that error back to the
-    model and retry, up to max_repair_attempts times (default:
-    config.MAX_SQL_REPAIR_ATTEMPTS).
-
-    Always returns an ExecutionResult -- never raises on a SQL execution
-    failure. Only raises on infrastructure problems (e.g. can't connect to
-    Postgres at all), since that's not something a repair retry can fix.
+    Run sql; on a Postgres error, send the error to the model and retry
+    (up to MAX_SQL_REPAIR_ATTEMPTS). A bad query returns success=False
+    rather than raising. Only connection problems raise, since a retry
+    can't fix those.
     """
     if max_repair_attempts is None:
         max_repair_attempts = config.MAX_SQL_REPAIR_ATTEMPTS
 
     current_sql = sql
-    client = None  # lazily created only if we actually need a repair
+    client = None  # only needed if a repair happens
 
     for attempt in range(max_repair_attempts + 1):
         try:
@@ -137,15 +127,13 @@ def execute_sql(sql: str, question: str, max_repair_attempts: int | None = None)
             print(f"  [executor] Repair attempt: {repair.what_was_wrong}")
             current_sql = repair.sql
 
-    # Unreachable, but keeps type-checkers happy
+    # unreachable; keeps type checkers happy
     return ExecutionResult(success=False, sql_used=current_sql, error="Unknown failure.")
 
 
 if __name__ == "__main__":
-    # Manual smoke test exercising the repair loop against a query that's
-    # structurally valid but fails at execution time (EXTRACT on an
-    # integer column):
-    #   python3 -m exo_agent.nodes.executor
+    # python3 -m exo_agent.nodes.executor
+    # valid-looking SQL that Postgres rejects (EXTRACT on an integer) -> should self-repair
     bad_sql = (
         "SELECT EXTRACT(YEAR FROM disc_year) as discover_year, COUNT(pl_name) as num_discovered "
         "FROM planets GROUP BY disc_year"

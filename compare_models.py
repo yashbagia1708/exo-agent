@@ -1,15 +1,8 @@
 """
-Quick, manual comparison of how different local models handle the same
-known-tricky questions -- cases that exercise edge conditions like
-date-range filters, multi-step CTEs, and type coercion in generated SQL.
+Side-by-side check of local models on a few tricky SQL questions
+(date ranges, CTEs, type mix-ups). Not the eval; see eval/run_eval.py.
 
-This is NOT the formal eval harness (that's eval/run_eval.py, run against
-the full question set). This is a fast, deliberately narrow script for
-comparing a couple of local models side by side on a small set of
-representative questions while you have multiple models pulled and warm.
-
-Usage:
-    python3 compare_models.py llama3.1:8b qwen2.5-coder:14b qwen2.5-coder:32b
+    python3 compare_models.py llama3.1:8b qwen2.5-coder:14b
 """
 
 import sys
@@ -40,7 +33,7 @@ def run_for_model(model_name: str):
     print(f"MODEL: {model_name}")
     print(f"{'=' * 70}")
 
-    # Temporarily override the configured model for this run
+    # swap the model for this run only
     config.MODEL = model_name
 
     for case in TEST_QUESTIONS:

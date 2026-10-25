@@ -1,16 +1,10 @@
 """
-The planner node: the agent's first real decision point. Given a
-question, decides (1) whether it's actually multiple distinct questions
-joined together, and (2) for each resulting sub-question, whether it
-needs structured SQL, conceptual retrieval (hybrid search over
-Wikipedia), or both.
+Planner: split the question into sub-questions and route each one.
 
-A message joining two unrelated asks with "and" (e.g. "list X, and tell
-me Y") is two independent questions, not one question with two
-conditions -- fusing them into a single SQL query would silently answer
-neither part correctly. Most real questions still decompose to exactly
-one sub-question; the multi-sub-question path exists specifically for
-genuinely compound input.
+    "list X, and tell me Y"  -> 2 sub-questions (one SQL query can't answer both)
+    "planets > Earth after 2015" -> 1 sub-question with two filters
+
+Each sub-question gets needs_sql and/or needs_retrieval (Wikipedia search).
 """
 
 from exo_agent import config
@@ -62,12 +56,9 @@ def plan_decomposition(question: str) -> DecompositionPlan:
 
 
 if __name__ == "__main__":
-    # Pass a question as a CLI argument to test it directly, e.g.:
-    #   python3 -m exo_agent.nodes.planner "your question here"
-    # With no argument, runs the built-in regression questions instead --
-    # covering single questions, conceptual questions, hybrid (both
-    # tools) questions, and the real compound question that motivated
-    # this node's decomposition behavior.
+    # python3 -m exo_agent.nodes.planner "question"   -> plan one question
+    # python3 -m exo_agent.nodes.planner              -> run the sample set below
+    # (single, conceptual, both tools, and the compound question that started this)
     import sys
 
     if len(sys.argv) > 1:

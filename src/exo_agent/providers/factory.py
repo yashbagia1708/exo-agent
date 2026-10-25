@@ -1,10 +1,5 @@
 """
-Returns a single, uniform client for whichever provider is configured.
-
-Every LangGraph node calls this the same way, regardless of provider:
-
-    from exo_agent.providers.factory import get_client
-    from exo_agent import config
+One instructor client for whichever provider is configured.
 
     client = get_client()
     result = client.chat.completions.create(
@@ -13,9 +8,8 @@ Every LangGraph node calls this the same way, regardless of provider:
         messages=[{"role": "user", "content": "..."}],
     )
 
-`result` is always a validated instance of SomePydanticModel, whether it
-came from Ollama (local Llama) or Anthropic (Claude). The node code never
-branches on provider -- that branching lives entirely here, in one place.
+`result` comes back as a validated SomePydanticModel. Nodes never check
+the provider themselves; that only happens here.
 """
 
 import instructor
@@ -33,8 +27,7 @@ def get_client():
         return instructor.from_openai(OpenAI())
 
     if config.PROVIDER == "ollama":
-        # Ollama exposes an OpenAI-compatible endpoint, so we reuse the
-        # OpenAI client pointed at localhost instead of a real API key.
+        # Ollama speaks the OpenAI API; the key is a dummy
         return instructor.from_openai(
             OpenAI(base_url=config.OLLAMA_BASE_URL, api_key="ollama"),
             mode=instructor.Mode.JSON,
