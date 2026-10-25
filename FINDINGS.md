@@ -1143,6 +1143,69 @@ count into insight_writer so a truncated list says so.
 
 ---
 
+## 2026-10-26 — "Most Earth-like, and how far is it?" failed three ways at once
+
+A user question from the live UI, "Which planet has the most earth like
+conditions and how far is it?", came back as "GJ 433 d" with "the dataset
+does not provide how far this planet is from its host star". Re-running
+it showed three separate problems:
+
+1. **The planner split a dependent follow-up.** It produced "Which planet
+   is most Earth-like?" and "How far is this planet?". Sub-questions run
+   independently, so part 2 had no idea what "this planet" was; on the
+   re-run its SQL searched `pl_name ILIKE '%proxima%'`. This is fix 3 from
+   the 2026-06-23 entry (pronoun-dependent sub-questions), never done.
+2. **"How far" was read as distance from the host star**, not from Earth.
+   The dataset has distance from Earth (`host_stars.sy_dist`) but no
+   planet-to-star distance, so it answered "not available".
+3. **"Most Earth-like" was ranked backwards.** The SQL was
+   `ORDER BY pl_insol DESC`, i.e. the planet with the MOST starlight
+   (KOI-55 b, ~2,500 K), with no caveat.
+
+**First attempt, prompt only:** a planner rule with this exact question
+as the worked example. Result: 0/9 runs kept the parts together
+(3 questions x 3 runs), including the worked example itself. The
+"distance from Earth" wording did take. Third time in this log that a
+prompt rule hasn't held for a structural behaviour, so:
+
+**Fix, in code:** `merge_dependent_parts()` in `planner.py` folds any
+later part that refers back ("it", "its", "this (largest) planet",
+"that star"...) into the part before it. "this/that" only count before a
+noun like planet/star, so "this year" or "planets that orbit..." don't
+trigger it. 10 unit tests in `tests/test_planner_merge.py`, built from
+the plans the model actually returned.
+
+**Also fixed, in the prompts:** `schema_context.py` now says Earth-like
+means closest to Earth's values (`ABS(pl_insol - 1) + ABS(pl_rade - 1)`,
+with a WRONG/RIGHT example), that "how far" means `sy_dist` from Earth
+(1 pc = 3.26 ly), and that there's no planet-to-star distance column.
+`insight_writer.py` must name the first row of a ranked result (one run
+picked row 2 of 5), and say which proxies an Earth-like ranking used.
+
+**A bug of our own, found on the way:** the schema description said
+`disc_facility` values look like `'TESS'`. The stored value is
+`'Transiting Exoplanet Survey Satellite (TESS)'`, so
+`disc_facility = 'TESS'` matched nothing and the answer said TESS had
+found no planets. The description now lists real values and says to use
+`ILIKE '%TESS%'`.
+
+**Live results (qwen2.5-coder:14b):** the Earth-like question, 3/3 runs:
+one sub-question, correct SQL, Teegarden's Star b (insolation 1.08, radius
+1.05, 3.83 pc ≈ 12.5 ly). Caveat: 2/3 named the proxies; 1/3 had none.
+"Largest planet found by TESS, and when was it discovered?": 1/2 right
+(TOI-1408 b, 25 Earth radii, 2023). The failing run filtered
+`discoverymethod ILIKE '%TESS%'` (wrong column), got 0 rows, and said the
+dataset has nothing on TESS.
+
+**Honest status:** the dependent-split bug is fixed deterministically and
+tested; the ranking and distance fixes held 3/3 on one question. Open:
+an empty result from a wrong filter still gets reported as "the dataset
+has no information", which is the more general problem the TESS failure
+shows. A sanity check ("0 rows: did the filter use the right column?")
+before narrating an empty result would be the next fix.
+
+---
+
 ## 2026-06-22 — Full eval suite results (qwen2.5-coder:14b, 5 runs/question)
 
 Completed tiers 2, 3, and 5 (tier 1 logged separately above).
