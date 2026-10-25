@@ -1,0 +1,83 @@
+# Manual: run the whole agent on GitHub's CPUs with a small model.
+# Proves the full pipeline works end to end in a clean environment. GitHub's
+# runners can't fit qwen2.5-coder:14b, so scores here are NOT comparable
+# with the local eval in FINDINGS.md; run `make eval` locally for those.
+name: smoke-eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Ollama model (small enough for a 2-CPU, 7 GB runner)
+        default: qwen2.5-coder:3b
+      tier:
+        description: Eval tier to run (1-5)
+        default: "1"
+      runs:
+        description: Runs per question
+        default: "1"
+      question:
+        description: One end-to-end question through the full graph
+        default: List the planets orbiting TRAPPIST-1, and what is the Kepler space telescope?
+
+jobs:
+  eval:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: exoagent
+          POSTGRES_USER: exoagent
+          POSTGRES_PASSWORD: exoagent
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U exoagent -d exoagent"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      ollama:
+        image: ollama/ollama:0.30.10
+        ports: ["11434:11434"]
+    env:
+      PROVIDER: ollama
+      MODEL: ${{ inputs.model }}
+      TIER: ${{ inputs.tier }}
+      RUNS: ${{ inputs.runs }}
+      QUESTION: ${{ inputs.question }}
+      DB_DSN: dbname=exoagent user=exoagent password=exoagent host=localhost port=5432
+      OLLAMA_BASE_URL: http://localhost:11434/v1
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install, download and load
+        uses: ./.github/actions/load-data
+        with:
+          models: nomic-embed-text ${{ inputs.model }}
+
+      - name: One question through the full graph
+        run: |
+          mkdir -p output
+          python -m exo_agent.graph "$QUESTION" | tee output/question.txt
+
+      - name: Eval (tier ${{ inputs.tier }}, ${{ inputs.runs }} run(s) each)
+        run: python eval/run_eval.py --tier "$TIER" --runs "$RUNS" | tee output/eval.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Smoke eval: \`$MODEL\` (not comparable with the local 14B eval)"
+            echo '```'
+            sed -n '/^ID /,$p' output/eval.txt 2>/dev/null || echo "eval did not finish"
+            echo '```'
+            echo "#### Question"
+            echo '```'
+            grep -A3 "Final Answer" output/question.txt 2>/dev/null || echo "no answer"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: smoke-eval-${{ inputs.tier }}
+          path: output/

@@ -1,0 +1,75 @@
+# Monthly (and on demand): download NASA's latest planet table, load it into
+# a fresh Postgres to make sure it still loads, and if the data-quality
+# notes changed, open a pull request from an updates/data-refresh-YYYY-MM
+# branch. New data goes through review like any other change.
+#
+# Needs: Settings -> Actions -> General -> "Allow GitHub Actions to create
+# and approve pull requests". PRs opened with GITHUB_TOKEN don't trigger
+# other workflows, so this job loads and checks the data itself first.
+name: data-refresh
+
+on:
+  schedule:
+    - cron: "0 3 1 * *"   # 03:00 UTC on the 1st of each month
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: exoagent
+          POSTGRES_USER: exoagent
+          POSTGRES_PASSWORD: exoagent
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U exoagent -d exoagent"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      DB_DSN: dbname=exoagent user=exoagent password=exoagent host=localhost port=5432
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download and load the latest table
+        uses: ./.github/actions/load-data
+        with:
+          load-wiki: "false"
+
+      - name: Did anything change?
+        id: diff
+        run: |
+          if git diff --quiet -- data/data_quality_notes.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No change since the last refresh." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff -- data/data_quality_notes.md | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Open a pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="updates/data-refresh-$(date -u +%Y-%m)"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "$branch already exists; leaving the open PR alone." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          counts=$(python scripts/db_counts.py)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add data/data_quality_notes.md
+          git commit -m "Refresh data-quality notes from NASA's $(date -u +%B\ %Y) table"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Data refresh: NASA Exoplanet Archive, $(date -u +%B\ %Y)" \
+            --body "$(printf 'Automated monthly refresh (data-refresh workflow).\n\nThe latest PSCompPars table downloaded and loaded cleanly into a fresh Postgres. Row counts after loading:\n\n```json\n%s\n```\n\nOnly `data/data_quality_notes.md` changes in git; the raw CSV is not committed. Eval baselines in FINDINGS.md were measured on older snapshots, so counts in answers may differ.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)' "$counts")"

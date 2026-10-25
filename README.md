@@ -1,5 +1,8 @@
 # exo-agent
 
+[![CI](https://github.com/yashbagia1708/exo-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/yashbagia1708/exo-agent/actions/workflows/ci.yml)
+[![pipeline](https://github.com/yashbagia1708/exo-agent/actions/workflows/pipeline.yml/badge.svg)](https://github.com/yashbagia1708/exo-agent/actions/workflows/pipeline.yml)
+
 A natural-language-to-insight agent over real NASA exoplanet data. Ask a
 question in plain English; it decomposes compound questions, routes each
 part to a live PostgreSQL database and/or a hybrid Wikipedia search,
@@ -319,6 +322,17 @@ Ollama, set `PROVIDER` and the matching API key in `.env`.
 If you'd rather use an existing Postgres than Docker, point `DB_DSN` in
 `.env` at it; `data/README.md` and `data/RAG_SETUP.md` cover installing
 the extensions by hand.
+
+## Workflows (GitHub Actions)
+
+| Workflow | Runs | What it does |
+|---|---|---|
+| `ci` | every push to main, every PR | ruff + unit tests on Python 3.10 and 3.12 (no model, no database) |
+| `pipeline` | every push to main, every PR | loads NASA's live table and the wiki corpus into real Postgres (pgvector) with Ollama embeddings, re-loads to prove it's repeatable, then runs the database checks in `tests/integration` (search, entity matching, 0-row filter check, NULLS LAST). Counts and data-quality notes are attached to the run |
+| `smoke-eval` | manual | the whole agent end to end with a small model (`qwen2.5-coder:3b` by default). GitHub's runners can't fit the 14B model, so these scores aren't comparable with the local eval |
+| `data-refresh` | 1st of each month, or manual | downloads the latest table; if the data-quality notes changed, opens a PR from an `updates/data-refresh-YYYY-MM` branch |
+
+Every change goes through a short-lived `updates/` or `fixes/` branch and a pull request, merged once CI passes.
 
 ## What I'd build next
 
