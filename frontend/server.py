@@ -240,7 +240,16 @@ def _build_trace(result: dict) -> list[TraceStep]:
 
         # chart or no chart
         chart_spec = sub_result.get("chart_spec")
-        if chart_spec:
+        chart_skipped = sub_result.get("chart_skipped")
+        if chart_skipped:
+            steps.append(
+                TraceStep(
+                    label=f"{step_counter}. {prefix}Skipped the chart: it can't be drawn from these rows",
+                    detail=chart_skipped,
+                )
+            )
+            step_counter += 1
+        elif chart_spec:
             if chart_spec.chart_type != "none":
                 steps.append(
                     TraceStep(
@@ -248,8 +257,7 @@ def _build_trace(result: dict) -> list[TraceStep]:
                         detail=(
                             f"Chart type: {chart_spec.chart_type}\n"
                             f"x = {chart_spec.x_field}, y = {chart_spec.y_field}\n\n"
-                            f"This decision looked at the ACTUAL result shape (row count, column "
-                            f"types), not just the question text."
+                            f"Checked against the returned rows: both columns exist and y is numeric."
                         ),
                     )
                 )

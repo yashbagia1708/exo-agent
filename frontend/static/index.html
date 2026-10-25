@@ -766,7 +766,7 @@ function renderPlan(ev) {
 }
 
 function stepKind(label) {
-  if (/self-repaired|no confident match|continued without/i.test(label)) return 'warn';
+  if (/self-repaired|no confident match|continued without|skipped the chart/i.test(label)) return 'warn';
   if (/failed/i.test(label)) return 'fail';
   return 'ok';
 }
