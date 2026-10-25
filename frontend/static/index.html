@@ -5,911 +5,920 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>exo-agent — ask the exoplanet archive</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0B0E1A;
-    --panel: #141B2E;
-    --panel-2: #181F36;
-    --border: #2A3350;
-    --text: #E8E3D8;
-    --text-dim: #9098B5;
-    --amber: #D4A05C;
-    --slate: #5B7FA6;
-    --error: #C2685B;
+    --bg: #070912;
+    --bg-2: #0C1020;
+    --surface: rgba(20, 26, 48, 0.72);
+    --surface-solid: #131A30;
+    --surface-2: rgba(30, 38, 68, 0.6);
+    --border: rgba(120, 140, 200, 0.16);
+    --border-strong: rgba(140, 160, 230, 0.32);
+    --text: #ECEEF7;
+    --text-2: #A3ABC8;
+    --text-3: #6B7396;
+    --accent: #8B7CFF;
+    --accent-2: #4FD1C5;
+    --amber: #F2B65A;
+    --db: #6AA8FF;
+    --wiki: #F2B65A;
+    --both: #C38BFF;
+    --ok: #4ADE80;
+    --error: #FF7A7A;
+    --radius: 16px;
+    --shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.6);
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --display: 'Space Grotesk', 'Inter', sans-serif;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  html, body {
+  html { scroll-behavior: smooth; }
+  body {
     background: var(--bg);
     color: var(--text);
-    font-family: 'Inter', sans-serif;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
     min-height: 100vh;
     overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
   }
+  button { font: inherit; color: inherit; }
+  a { color: inherit; }
+  ::selection { background: rgba(139, 124, 255, 0.35); }
 
   @media (prefers-reduced-motion: reduce) {
-    * { animation: none !important; transition: none !important; }
+    *, *::before, *::after { animation: none !important; transition: none !important; }
   }
 
-  /* ---------- starfield (pure CSS, no images) ---------- */
-  .starfield {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    background: var(--bg);
+  /* ---------- background ---------- */
+  #stars { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+  .glow {
+    position: fixed; z-index: 0; pointer-events: none; border-radius: 50%;
+    filter: blur(90px); opacity: 0.35;
   }
-  .star-layer {
-    position: absolute;
-    inset: 0;
-    background-repeat: repeat;
-  }
-  .star-layer.s1 {
-    background-image:
-      radial-gradient(1.5px 1.5px at 20% 30%, #E8E3D8 60%, transparent),
-      radial-gradient(1.5px 1.5px at 70% 65%, #E8E3D8 60%, transparent),
-      radial-gradient(1px 1px at 45% 12%, #E8E3D8 60%, transparent),
-      radial-gradient(1px 1px at 88% 40%, #E8E3D8 60%, transparent),
-      radial-gradient(1.5px 1.5px at 12% 80%, #E8E3D8 60%, transparent),
-      radial-gradient(1px 1px at 60% 90%, #E8E3D8 60%, transparent),
-      radial-gradient(1px 1px at 33% 55%, #E8E3D8 60%, transparent),
-      radial-gradient(1.5px 1.5px at 80% 8%, #E8E3D8 60%, transparent);
-    background-size: 600px 600px;
-    opacity: 0.5;
-    animation: drift 240s linear infinite;
-  }
-  .star-layer.s2 {
-    background-image:
-      radial-gradient(1px 1px at 15% 15%, var(--amber) 70%, transparent),
-      radial-gradient(1px 1px at 55% 75%, var(--text) 70%, transparent),
-      radial-gradient(1px 1px at 85% 55%, var(--text) 70%, transparent),
-      radial-gradient(1px 1px at 25% 90%, var(--amber) 70%, transparent);
-    background-size: 800px 800px;
-    opacity: 0.35;
-    animation: drift 380s linear infinite reverse;
-  }
-  @keyframes drift {
-    from { transform: translate(0, 0); }
-    to { transform: translate(-300px, -200px); }
-  }
+  .glow.g1 { width: 520px; height: 520px; top: -180px; left: -120px; background: #3B2C9E; }
+  .glow.g2 { width: 460px; height: 460px; top: 30%; right: -200px; background: #0F5F73; opacity: 0.25; }
 
-  .wrap {
+  .app { position: relative; z-index: 1; }
+
+  /* ---------- nav ---------- */
+  nav {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    padding: 0.9rem clamp(1rem, 4vw, 2.5rem);
+    background: rgba(7, 9, 18, 0.65);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 0.6rem; font-family: var(--display); font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
+  .brand-mark {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #FFE3B0, var(--amber) 45%, #8A4B12 100%);
+    box-shadow: 0 0 18px rgba(242, 182, 90, 0.45);
     position: relative;
-    z-index: 1;
-    max-width: 760px;
-    margin: 0 auto;
-    padding: 5rem 1.5rem 6rem;
   }
-
-  /* ---------- header / hero ---------- */
-  .eyebrow {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--slate);
-    margin-bottom: 1.1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
+  .brand-mark::after {
+    content: ''; position: absolute; inset: -5px -9px; border-radius: 50%;
+    border: 1.5px solid rgba(139, 124, 255, 0.7); transform: rotate(-22deg);
   }
-  .eyebrow::before {
-    content: '';
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--amber);
-    box-shadow: 0 0 8px var(--amber);
-  }
-
-  h1 {
-    font-family: 'Fraunces', serif;
-    font-weight: 500;
-    font-size: clamp(1.8rem, 4.5vw, 2.6rem);
-    line-height: 1.25;
-    letter-spacing: -0.01em;
-    color: var(--text);
-    margin-bottom: 0.9rem;
-  }
-  h1 em {
-    font-style: italic;
-    color: var(--amber);
-  }
-
-  .sub {
-    color: var(--text-dim);
-    font-size: 0.98rem;
-    line-height: 1.6;
-    max-width: 560px;
-    margin-bottom: 2.6rem;
-  }
-  .sub a { color: var(--slate); text-decoration: underline; text-decoration-color: var(--border); }
-
-  /* ---------- input ---------- */
-  .ask-box {
-    position: relative;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 1.4rem 1.4rem 1.1rem;
-    margin-bottom: 1rem;
-    transition: border-color 0.25s ease;
-  }
-  .ask-box:focus-within {
-    border-color: var(--slate);
-  }
-  textarea {
-    width: 100%;
-    background: transparent;
-    border: none;
-    outline: none;
-    resize: none;
-    color: var(--text);
-    font-family: 'Fraunces', serif;
-    font-size: 1.18rem;
-    line-height: 1.45;
-    min-height: 2.6rem;
-    font-weight: 400;
-  }
-  textarea::placeholder { color: #535d80; font-style: italic; }
-
-  .ask-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 0.9rem;
-    padding-top: 0.9rem;
-    border-top: 1px solid var(--border);
-  }
-  .hint {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    color: #535d80;
-  }
-  button.ask {
-    background: var(--amber);
-    color: #1A1306;
-    border: none;
-    border-radius: 9px;
-    padding: 0.6rem 1.3rem;
-    font-family: 'Inter', sans-serif;
-    font-weight: 600;
-    font-size: 0.88rem;
-    cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-  }
-  button.ask:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 18px rgba(212, 160, 92, 0.25);
-  }
-  button.ask:disabled { opacity: 0.5; cursor: default; }
-
-  .examples {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 3.2rem;
-  }
-  .chip {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.74rem;
-    color: var(--text-dim);
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 100px;
-    padding: 0.4rem 0.85rem;
-    cursor: pointer;
-    transition: border-color 0.2s ease, color 0.2s ease;
-  }
-  .chip:hover { border-color: var(--slate); color: var(--text); }
-
-  /* ---------- answer area ---------- */
-  #result { display: none; }
-  #result.visible { display: block; animation: rise 0.5s ease; }
-  @keyframes rise {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  .loading {
-    display: none;
-    align-items: center;
-    gap: 0.7rem;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.82rem;
-    color: var(--slate);
-    padding: 1.5rem 0;
-  }
-  .loading.visible { display: flex; }
-  .spinner {
-    width: 14px; height: 14px;
-    border: 2px solid var(--border);
-    border-top-color: var(--amber);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .answer-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 1.8rem;
-    margin-bottom: 1rem;
-  }
-  .answer-card.error { border-color: var(--error); }
-  .answer-text {
-    font-family: 'Fraunces', serif;
-    font-size: 1.15rem;
-    line-height: 1.6;
-    color: var(--text);
-    margin-bottom: 0;
-  }
-  .caveat {
-    margin-top: 1.1rem;
-    padding-top: 1rem;
-    border-top: 1px dashed var(--border);
-    font-size: 0.86rem;
-    color: var(--amber);
-    line-height: 1.5;
-  }
-  .caveat::before { content: '⚠ '; opacity: 0.8; }
-
-  .sources-section {
-    margin-top: 1.1rem;
-    padding-top: 1rem;
-    border-top: 1px dashed var(--border);
-  }
-  .sources-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.7rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 0.6rem;
-  }
-  .source-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.78rem;
-    color: var(--slate);
-    text-decoration: none;
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 100px;
-    padding: 0.35rem 0.8rem;
-    margin: 0 0.4rem 0.4rem 0;
-    transition: border-color 0.2s ease, color 0.2s ease;
-  }
-  .source-link:hover { border-color: var(--slate); color: var(--text); }
-  .source-link::before { content: '🔗'; font-size: 0.7rem; opacity: 0.7; }
-
-  /* ---------- routing summary card ---------- */
-  .routing-summary {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 1.3rem 1.4rem;
-    margin-bottom: 1rem;
-  }
-  .routing-summary-title {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 0.5rem;
-  }
-  .routing-reasoning {
-    font-size: 0.86rem;
-    color: var(--text-dim);
-    line-height: 1.5;
-    margin-bottom: 1rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px dashed var(--border);
-  }
-  .routing-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.8rem;
-    padding: 0.7rem 0;
-  }
-  .routing-row + .routing-row { border-top: 1px solid var(--border); }
-  .routing-badges { display: flex; flex-direction: column; gap: 0.35rem; flex-shrink: 0; min-width: 92px; }
-  .routing-badge {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.68rem;
-    letter-spacing: 0.02em;
-    border-radius: 6px;
-    padding: 0.25rem 0.55rem;
-    text-align: center;
+  .nav-right { display: flex; align-items: center; gap: 0.6rem; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-family: var(--mono); font-size: 0.72rem; color: var(--text-2);
+    padding: 0.38rem 0.75rem; border-radius: 100px;
+    background: var(--surface-2); border: 1px solid var(--border);
     white-space: nowrap;
   }
-  .routing-badge.db { background: rgba(91, 127, 166, 0.18); color: var(--slate); border: 1px solid rgba(91, 127, 166, 0.35); }
-  .routing-badge.wiki { background: rgba(212, 160, 92, 0.15); color: var(--amber); border: 1px solid rgba(212, 160, 92, 0.35); }
-  .routing-content { flex: 1; min-width: 0; }
-  .routing-question { font-size: 0.92rem; color: var(--text); margin-bottom: 0.35rem; }
-  .routing-detail {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    color: var(--text-dim);
-    line-height: 1.5;
-    word-break: break-word;
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+  .dot.bad { background: var(--error); box-shadow: 0 0 10px var(--error); }
+  .icon-btn {
+    display: inline-flex; align-items: center; gap: 0.45rem;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 100px;
+    padding: 0.38rem 0.8rem; font-size: 0.8rem; color: var(--text-2); cursor: pointer;
+    text-decoration: none; transition: border-color 0.2s, color 0.2s;
   }
-  .routing-detail .wiki-tag {
-    display: inline-block;
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 100px;
-    padding: 0.15rem 0.55rem;
-    margin: 0.15rem 0.3rem 0 0;
-    color: var(--amber);
-  }
+  .icon-btn:hover { border-color: var(--border-strong); color: var(--text); }
 
-  /* ---------- topics panel ---------- */
-  .topics-toggle {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.74rem;
-    color: var(--text-dim);
-    background: none;
-    border: none;
-    cursor: pointer;
-    text-decoration: underline;
-    text-decoration-color: var(--border);
-    padding: 0;
-    margin-bottom: 2.6rem;
-    display: block;
-  }
-  .topics-toggle:hover { color: var(--text); text-decoration-color: var(--slate); }
-  .topics-panel {
-    display: none;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 1.3rem 1.4rem;
-    margin-top: -1.6rem;
-    margin-bottom: 2.6rem;
-  }
-  .topics-panel.visible { display: block; }
-  .topics-panel-title {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 0.3rem;
-  }
-  .topics-panel-sub {
-    font-size: 0.82rem;
-    color: var(--text-dim);
-    margin-bottom: 1rem;
-    line-height: 1.5;
-  }
-  .topics-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-  .topic-chip {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.74rem;
-    color: var(--amber);
-    background: var(--panel-2);
-    border: 1px solid rgba(212, 160, 92, 0.3);
-    border-radius: 100px;
-    padding: 0.4rem 0.85rem;
-    cursor: pointer;
-    transition: border-color 0.2s ease, background 0.2s ease;
-  }
-  .topic-chip:hover { border-color: var(--amber); background: rgba(212, 160, 92, 0.1); }
+  /* ---------- layout ---------- */
+  main { max-width: 1180px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2.5rem) 5rem; }
 
-  .chart-wrap {
-    margin: 1rem 0;
-    border-radius: 14px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    background: #fff;
-  }
-  .chart-wrap img { width: 100%; display: block; }
+  .hero { text-align: center; padding: clamp(3rem, 9vh, 6rem) 0 2rem; transition: padding 0.5s ease; }
+  body.has-run .hero { padding: 2rem 0 1.25rem; }
+  body.has-run .hero h1, body.has-run .hero .lede, body.has-run .stats { display: none; }
 
-  .meta-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1.4rem;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    color: var(--text-dim);
-    margin-bottom: 1.3rem;
-    padding: 0 0.2rem;
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent-2); padding: 0.35rem 0.8rem; border-radius: 100px;
+    background: rgba(79, 209, 197, 0.08); border: 1px solid rgba(79, 209, 197, 0.25);
+    margin-bottom: 1.4rem;
   }
-  .meta-row span b { color: var(--text); font-weight: 500; }
+  h1 {
+    font-family: var(--display); font-weight: 600;
+    font-size: clamp(2rem, 5.2vw, 3.6rem); line-height: 1.08; letter-spacing: -0.03em;
+    max-width: 880px; margin: 0 auto 1.1rem;
+  }
+  .grad {
+    background: linear-gradient(100deg, #FFD89A 0%, var(--amber) 30%, #C38BFF 70%, var(--accent) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lede { color: var(--text-2); font-size: clamp(0.98rem, 1.6vw, 1.1rem); max-width: 640px; margin: 0 auto 2rem; }
 
-  /* ---------- trace toggle ---------- */
-  .trace-toggle {
-    width: 100%;
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 0.85rem 1.2rem;
-    color: var(--text-dim);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.78rem;
-    text-align: left;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    transition: border-color 0.2s ease, color 0.2s ease;
+  .stats { display: flex; justify-content: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 2.4rem; }
+  .stat {
+    min-width: 140px; padding: 0.8rem 1.1rem; border-radius: 14px; text-align: left;
+    background: var(--surface); border: 1px solid var(--border);
   }
-  .trace-toggle:hover { border-color: var(--slate); color: var(--text); }
-  .trace-toggle .arrow { transition: transform 0.25s ease; }
-  .trace-toggle.open .arrow { transform: rotate(90deg); }
+  .stat b { display: block; font-family: var(--display); font-size: 1.45rem; font-weight: 600; letter-spacing: -0.02em; }
+  .stat span { font-size: 0.78rem; color: var(--text-3); }
 
-  .trace-panel {
-    display: none;
-    margin-top: 0.9rem;
-    padding: 1.6rem 1.4rem 0.4rem 1.4rem;
-    border-left: 1px solid rgba(212, 160, 92, 0.35);
-    margin-left: 0.9rem;
+  /* ---------- composer ---------- */
+  .composer {
+    max-width: 820px; margin: 0 auto; position: relative;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    transition: border-color 0.25s, box-shadow 0.25s;
   }
-  .trace-panel.visible { display: block; }
+  .composer::before {
+    content: ''; position: absolute; inset: -1px; border-radius: 21px; padding: 1px; pointer-events: none;
+    background: linear-gradient(120deg, rgba(139,124,255,0.7), rgba(79,209,197,0.4), rgba(242,182,90,0.6));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .composer:focus-within::before { opacity: 1; }
+  .composer:focus-within { box-shadow: 0 20px 70px -20px rgba(139, 124, 255, 0.35); }
+  textarea {
+    display: block; width: 100%; resize: none; border: 0; outline: 0; background: transparent;
+    color: var(--text); font: inherit; font-size: 1.08rem; line-height: 1.5;
+    padding: 1.15rem 1.3rem 0.4rem; min-height: 3.2rem; max-height: 220px;
+  }
+  textarea::placeholder { color: var(--text-3); }
+  .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.55rem 0.7rem 0.7rem 1.3rem; }
+  .kbd-hint { font-family: var(--mono); font-size: 0.7rem; color: var(--text-3); }
+  kbd {
+    font-family: var(--mono); font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 5px;
+    border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-2);
+  }
+  .send {
+    display: inline-flex; align-items: center; gap: 0.5rem; border: 0; cursor: pointer;
+    padding: 0.62rem 1.1rem; border-radius: 12px; font-weight: 600; font-size: 0.88rem; color: #0B0820;
+    background: linear-gradient(135deg, #B7ABFF, var(--accent));
+    box-shadow: 0 8px 24px -8px rgba(139, 124, 255, 0.7);
+    transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s;
+  }
+  .send:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 28px -8px rgba(139, 124, 255, 0.85); }
+  .send:disabled { opacity: 0.45; cursor: default; }
+  .send.stop { background: var(--surface-2); color: var(--text); box-shadow: none; border: 1px solid var(--border-strong); }
+  .send svg { width: 16px; height: 16px; }
 
-  .trace-step {
-    position: relative;
-    padding-bottom: 1.7rem;
-    padding-left: 1.4rem;
+  .recent { max-width: 820px; margin: 0.9rem auto 0; display: none; align-items: center; flex-wrap: wrap; gap: 0.45rem; }
+  .recent.visible { display: flex; }
+  .recent-label { font-family: var(--mono); font-size: 0.68rem; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.1em; margin-right: 0.2rem; }
+  .recent-chip {
+    max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 0.78rem; color: var(--text-2); cursor: pointer;
+    padding: 0.3rem 0.7rem; border-radius: 100px; background: transparent; border: 1px solid var(--border);
+    transition: border-color 0.2s, color 0.2s;
   }
-  .trace-step::before {
-    content: '✓';
-    position: absolute;
-    left: -1.18rem;
-    top: -0.05rem;
-    width: 14px; height: 14px;
-    border-radius: 50%;
-    background: var(--amber);
-    color: #1A1306;
-    border: 2px solid var(--amber);
-    font-size: 9px;
-    font-weight: 700;
-    line-height: 14px;
-    text-align: center;
-    box-shadow: 0 0 6px rgba(212, 160, 92, 0.45);
-  }
-  .trace-step:last-child { padding-bottom: 0; }
-  .trace-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.78rem;
-    color: var(--amber);
-    margin-bottom: 0.4rem;
-    letter-spacing: 0.01em;
-  }
-  .trace-detail {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.76rem;
-    line-height: 1.6;
-    color: var(--text-dim);
-    white-space: pre-wrap;
-    word-break: break-word;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.8rem 0.9rem;
-  }
+  .recent-chip:hover { border-color: var(--border-strong); color: var(--text); }
+  .link-btn { background: none; border: 0; color: var(--text-3); font-size: 0.74rem; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+  .link-btn:hover { color: var(--text-2); }
 
-  /* ---------- footer / data source note ---------- */
-  .source-note {
-    margin-top: 3rem;
-    padding-top: 1.6rem;
-    border-top: 1px solid var(--border);
-    font-size: 0.82rem;
-    color: var(--text-dim);
-    line-height: 1.6;
+  /* ---------- examples ---------- */
+  .examples-wrap { max-width: 1000px; margin: 2.6rem auto 0; }
+  body.has-run .examples-wrap { display: none; }
+  .section-label {
+    font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-3); margin-bottom: 0.9rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   }
-  .source-note b { color: var(--text); }
-  .source-note a { color: var(--slate); text-decoration: none; border-bottom: 1px solid var(--border); }
-  .source-note a:hover { border-color: var(--slate); }
+  .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0.75rem; }
+  .example {
+    text-align: left; cursor: pointer; padding: 1rem 1.05rem; border-radius: 14px;
+    background: var(--surface); border: 1px solid var(--border);
+    transition: transform 0.2s, border-color 0.2s, background 0.2s;
+    display: flex; flex-direction: column; gap: 0.65rem;
+  }
+  .example:hover { transform: translateY(-2px); border-color: var(--border-strong); background: rgba(28, 35, 64, 0.8); }
+  .example p { font-size: 0.9rem; color: var(--text); }
+  .tag {
+    align-self: flex-start; display: inline-flex; align-items: center; gap: 0.35rem;
+    font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.04em;
+    padding: 0.2rem 0.55rem; border-radius: 6px; border: 1px solid;
+  }
+  .tag.db { color: var(--db); border-color: rgba(106, 168, 255, 0.35); background: rgba(106, 168, 255, 0.08); }
+  .tag.wiki { color: var(--wiki); border-color: rgba(242, 182, 90, 0.35); background: rgba(242, 182, 90, 0.08); }
+  .tag.both { color: var(--both); border-color: rgba(195, 139, 255, 0.35); background: rgba(195, 139, 255, 0.08); }
 
-  @media (max-width: 540px) {
-    .wrap { padding: 3.2rem 1.2rem 4rem; }
-    h1 { font-size: 1.5rem; }
+  .topics { margin-top: 1.6rem; display: none; flex-wrap: wrap; gap: 0.45rem; }
+  .topics.visible { display: flex; }
+  .topic {
+    font-size: 0.78rem; color: var(--wiki); cursor: pointer;
+    padding: 0.32rem 0.7rem; border-radius: 100px; background: rgba(242, 182, 90, 0.06); border: 1px solid rgba(242, 182, 90, 0.22);
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .topic:hover { background: rgba(242, 182, 90, 0.14); border-color: rgba(242, 182, 90, 0.5); }
+
+  /* ---------- run view ---------- */
+  #run { display: none; margin-top: 1.6rem; }
+  body.has-run #run { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+  @media (max-width: 900px) { body.has-run #run { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    animation: rise 0.45s ease both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  .q-echo { padding: 1.1rem 1.3rem; margin-bottom: 1rem; display: flex; gap: 0.85rem; align-items: flex-start; }
+  .avatar {
+    flex-shrink: 0; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
+    font-family: var(--mono); font-size: 0.75rem; font-weight: 500;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
+  }
+  .q-echo p { font-size: 1.02rem; padding-top: 0.2rem; }
+
+  .answer { padding: 1.4rem 1.4rem 1.2rem; }
+  .answer.error { border-color: rgba(255, 122, 122, 0.4); }
+  .answer-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.9rem; }
+  .answer-title { display: flex; align-items: center; gap: 0.6rem; font-family: var(--display); font-weight: 600; font-size: 0.95rem; }
+  .answer-title .avatar { background: linear-gradient(135deg, rgba(139,124,255,0.35), rgba(79,209,197,0.25)); color: var(--text); border-color: rgba(139,124,255,0.4); }
+  .answer-text { font-size: 1.04rem; line-height: 1.7; color: var(--text); white-space: pre-wrap; }
+  .answer.error .answer-text { color: var(--error); }
+
+  .skeleton { display: grid; gap: 0.6rem; }
+  .skeleton div {
+    height: 12px; border-radius: 6px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 40%, rgba(255,255,255,0.04) 80%);
+    background-size: 300% 100%; animation: shimmer 1.6s ease-in-out infinite;
+  }
+  .skeleton div:nth-child(2) { width: 92%; } .skeleton div:nth-child(3) { width: 78%; } .skeleton div:nth-child(4) { width: 55%; }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  .skeleton-note { margin-top: 1rem; font-size: 0.8rem; color: var(--text-3); }
+
+  .caveat {
+    margin-top: 1.1rem; display: flex; gap: 0.65rem; align-items: flex-start;
+    padding: 0.8rem 0.95rem; border-radius: 12px; font-size: 0.88rem; color: #F8D9A5;
+    background: rgba(242, 182, 90, 0.07); border: 1px solid rgba(242, 182, 90, 0.25);
+  }
+  .caveat svg { flex-shrink: 0; width: 16px; height: 16px; margin-top: 0.15rem; color: var(--amber); }
+
+  .sources { margin-top: 1.1rem; display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; }
+  .source {
+    display: inline-flex; align-items: center; gap: 0.4rem; text-decoration: none;
+    font-size: 0.8rem; color: var(--text-2); padding: 0.32rem 0.7rem; border-radius: 100px;
+    background: var(--surface-2); border: 1px solid var(--border); transition: border-color 0.2s, color 0.2s;
+  }
+  .source:hover { border-color: var(--wiki); color: var(--text); }
+  .source svg { width: 12px; height: 12px; color: var(--wiki); }
+
+  .meta { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .meta .pill { font-size: 0.7rem; }
+  .meta .pill b { color: var(--text); font-weight: 500; }
+
+  .chart-card { margin-top: 1rem; padding: 0.9rem; }
+  .chart-card img { display: block; width: 100%; border-radius: 10px; background: #fff; cursor: zoom-in; }
+  .card-label { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); margin: 0.1rem 0.2rem 0.7rem; display: flex; justify-content: space-between; align-items: center; }
+
+  .sql-card { margin-top: 1rem; overflow: hidden; }
+  .sql-card .card-label { margin: 0; padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); }
+  .copy { background: none; border: 1px solid var(--border); border-radius: 7px; color: var(--text-2); font-family: var(--mono); font-size: 0.66rem; padding: 0.2rem 0.5rem; cursor: pointer; text-transform: none; letter-spacing: 0; }
+  .copy:hover { color: var(--text); border-color: var(--border-strong); }
+  pre.sql {
+    margin: 0; padding: 1rem; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.6;
+    color: #CDD3EE; background: rgba(5, 7, 15, 0.55); white-space: pre-wrap; word-break: break-word;
+  }
+  pre.sql + pre.sql { border-top: 1px solid var(--border); }
+  .kw { color: #B7ABFF; } .str { color: #9BE9A8; } .num { color: #F2B65A; } .fn { color: #6AD6FF; }
+
+  /* ---------- pipeline panel ---------- */
+  .pipeline { padding: 1.1rem 1.1rem 0.6rem; position: sticky; top: 76px; max-height: calc(100vh - 96px); overflow-y: auto; }
+  .pipeline-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; gap: 0.75rem; }
+  .pipeline-head h3 { font-family: var(--display); font-weight: 600; font-size: 0.95rem; }
+  .timer { font-family: var(--mono); font-size: 0.75rem; color: var(--text-2); }
+
+  .plan { padding: 0.8rem 0.9rem; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); margin-bottom: 1rem; }
+  .plan-reason { font-size: 0.8rem; color: var(--text-2); margin-bottom: 0.6rem; }
+  .plan-row { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.45rem 0; font-size: 0.85rem; }
+  .plan-row + .plan-row { border-top: 1px dashed var(--border); }
+  .plan-row .n { font-family: var(--mono); font-size: 0.7rem; color: var(--text-3); padding-top: 0.15rem; }
+  .plan-row .tags { display: flex; gap: 0.3rem; margin-top: 0.35rem; flex-wrap: wrap; }
+
+  .steps { position: relative; list-style: none; }
+  .steps::before { content: ''; position: absolute; left: 11px; top: 8px; bottom: 8px; width: 1px; background: linear-gradient(var(--border-strong), transparent); }
+  .step { position: relative; padding: 0 0 0.85rem 2.1rem; animation: rise 0.35s ease both; }
+  .step-dot {
+    position: absolute; left: 0; top: 0; width: 23px; height: 23px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--surface-solid); border: 1px solid rgba(74, 222, 128, 0.45); color: var(--ok);
+  }
+  .step-dot svg { width: 12px; height: 12px; }
+  .step.warn .step-dot { border-color: rgba(242, 182, 90, 0.5); color: var(--amber); }
+  .step.fail .step-dot { border-color: rgba(255, 122, 122, 0.5); color: var(--error); }
+  .step.running .step-dot { border-color: rgba(139, 124, 255, 0.6); }
+  .spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(139, 124, 255, 0.25); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .step-btn {
+    width: 100%; text-align: left; background: none; border: 0; cursor: pointer; padding: 0.15rem 0 0;
+    display: flex; justify-content: space-between; gap: 0.5rem; align-items: flex-start;
+    font-size: 0.85rem; color: var(--text);
+  }
+  .step.running .step-btn { cursor: default; color: var(--text-2); }
+  .step-btn .chev { color: var(--text-3); transition: transform 0.2s; flex-shrink: 0; margin-top: 0.1rem; }
+  .step.open .chev { transform: rotate(90deg); }
+  .step-sub { display: block; font-family: var(--mono); font-size: 0.66rem; color: var(--text-3); margin-bottom: 0.1rem; }
+  .step-detail {
+    display: none; margin-top: 0.5rem; padding: 0.7rem 0.8rem; border-radius: 10px;
+    font-family: var(--mono); font-size: 0.72rem; line-height: 1.6; color: var(--text-2);
+    background: rgba(5, 7, 15, 0.55); border: 1px solid var(--border); white-space: pre-wrap; word-break: break-word;
+  }
+  .step.open .step-detail { display: block; }
+  .pipeline-foot { font-size: 0.74rem; color: var(--text-3); padding: 0.4rem 0 0.6rem; border-top: 1px solid var(--border); margin-top: 0.3rem; }
+
+  /* ---------- lightbox / toast / footer ---------- */
+  .lightbox { position: fixed; inset: 0; z-index: 50; display: none; place-items: center; padding: 2rem; background: rgba(3, 4, 10, 0.85); backdrop-filter: blur(6px); cursor: zoom-out; }
+  .lightbox.visible { display: grid; }
+  .lightbox img { max-width: min(1100px, 100%); max-height: 90vh; border-radius: 12px; background: #fff; }
+  .toast {
+    position: fixed; bottom: 1.4rem; left: 50%; transform: translate(-50%, 20px); opacity: 0; z-index: 60;
+    padding: 0.55rem 1rem; border-radius: 10px; font-size: 0.82rem; background: var(--surface-solid); border: 1px solid var(--border-strong);
+    transition: opacity 0.2s, transform 0.2s; pointer-events: none;
+  }
+  .toast.visible { opacity: 1; transform: translate(-50%, 0); }
+
+  footer { max-width: 1180px; margin: 0 auto; padding: 2rem clamp(1rem, 4vw, 2.5rem) 3rem; border-top: 1px solid var(--border); color: var(--text-3); font-size: 0.8rem; }
+  .foot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.4rem; }
+  footer b { display: block; color: var(--text-2); font-weight: 600; margin-bottom: 0.3rem; font-size: 0.82rem; }
+
+  @media (max-width: 600px) {
+    .nav-right .pill .pill-text { display: none; }
+    .kbd-hint { display: none; }
+    .stat { min-width: 0; flex: 1 1 40%; }
   }
 </style>
 </head>
 <body>
 
-<div class="starfield">
-  <div class="star-layer s1"></div>
-  <div class="star-layer s2"></div>
-</div>
+<canvas id="stars" aria-hidden="true"></canvas>
+<div class="glow g1"></div>
+<div class="glow g2"></div>
 
-<div class="wrap">
-
-  <div class="eyebrow">exo-agent · live demo</div>
-  <h1>Ask anything about the <em>6,298</em> confirmed exoplanets NASA knows about — or how we found them.</h1>
-  <p class="sub">
-    This runs a real agent — it plans, then routes each question to a live
-    PostgreSQL database, a hybrid (lexical + semantic) search over
-    Wikipedia, or both. No fact below comes from the model's memory; every
-    number traces back to a real row in the database, and every concept
-    traces back to a cited source. Click <b>"how it got this answer"</b>
-    after any response to see every step.
-  </p>
-
-  <div class="ask-box">
-    <textarea id="question" placeholder="e.g. How many planets were found by the transit method, and how does that method work?" rows="2"></textarea>
-    <div class="ask-row">
-      <span class="hint">⏎ to ask</span>
-      <button class="ask" id="askBtn">Ask the archive</button>
+<div class="app">
+  <nav>
+    <div class="brand"><span class="brand-mark"></span> exo-agent</div>
+    <div class="nav-right">
+      <span class="pill" id="statusPill" title="Backend status"><span class="dot" id="statusDot"></span><span class="pill-text" id="statusText">Connecting…</span></span>
+      <a class="icon-btn" id="repoLink" href="#" target="_blank" rel="noopener" style="display:none">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+        Source
+      </a>
     </div>
-  </div>
+  </nav>
 
-  <div class="examples" id="examples">
-    <div class="chip">How many confirmed exoplanets are there?</div>
-    <div class="chip">How does the transit method actually work?</div>
-    <div class="chip">How many planets were found by the transit method, and how does that work?</div>
-    <div class="chip">Which planets orbit TRAPPIST-1?</div>
-  </div>
-
-  <button class="topics-toggle" id="topicsToggle">What concepts can I ask about? (Wikipedia topics) ›</button>
-  <div class="topics-panel" id="topicsPanel">
-    <div class="topics-panel-title">Concept knowledge base</div>
-    <p class="topics-panel-sub">
-      Questions touching any of these topics trigger hybrid search (lexical + semantic, RRF-fused) over the real Wikipedia article — not the structured database. Click one to try it.
-    </p>
-    <div class="topics-grid" id="topicsGrid">
-      <span style="color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;">Loading topics…</span>
-    </div>
-  </div>
-
-  <div class="loading" id="loading">
-    <div class="spinner"></div>
-    <span id="loadingText">Planning the query…</span>
-  </div>
-
-  <div id="result">
-    <div class="meta-row" id="metaRow"></div>
-    <div class="answer-card" id="answerCard">
-      <p class="answer-text" id="answerText"></p>
-      <div class="caveat" id="caveatBox" style="display:none;"></div>
-      <div class="sources-section" id="sourcesSection" style="display:none;">
-        <div class="sources-label">Sources used</div>
-        <div id="sourcesLinks"></div>
+  <main>
+    <section class="hero">
+      <span class="eyebrow">● Live agent · runs fully local</span>
+      <h1>Ask anything about the <span class="grad" id="heroCount">6,000+</span> exoplanets NASA has confirmed.</h1>
+      <p class="lede">
+        A planner splits your question, routes each part to a live Postgres database,
+        a hybrid search over Wikipedia, or both, and answers only from what it finds.
+        Watch every step happen as it runs.
+      </p>
+      <div class="stats" id="stats">
+        <div class="stat"><b data-count="planets">—</b><span>confirmed planets</span></div>
+        <div class="stat"><b data-count="host_stars">—</b><span>host stars</span></div>
+        <div class="stat"><b data-count="wiki_articles">—</b><span>Wikipedia articles</span></div>
       </div>
-    </div>
-    <div class="chart-wrap" id="chartWrap" style="display:none;">
-      <img id="chartImg" alt="Generated chart" />
-    </div>
-    <div class="routing-summary" id="routingSummary" style="display:none;">
-      <div class="routing-summary-title">How the question was routed</div>
-      <div class="routing-reasoning" id="routingReasoning" style="display:none;"></div>
-      <div id="routingRows"></div>
-    </div>
-    <button class="trace-toggle" id="traceToggle">
-      <span>Full step-by-step trace</span>
-      <span class="arrow">›</span>
-    </button>
-    <div class="trace-panel" id="tracePanel"></div>
-  </div>
 
-  <div class="source-note">
-    <b>Structured data:</b> NASA Exoplanet Archive, PSCompPars table —
-    downloaded directly via NASA's public TAP API. 6,298 confirmed planets
-    across 4,716 host stars, in a real two-table PostgreSQL schema.
-    <br><br>
-    <b>Conceptual knowledge:</b> 18 Wikipedia articles on detection methods
-    and astronomy concepts, retrieved via hybrid search — lexical
-    (full-text) and semantic (vector embeddings) search combined with
-    Reciprocal Rank Fusion, not just one or the other.
-    <br><br>
-    <b>How answers are derived:</b> a planner first decides whether a
-    question needs the database, retrieval, or both — splitting it into
-    separate sub-questions if it asks for genuinely unrelated things. Every
-    number comes from a real SQL row; every concept comes from a cited
-    passage. Neither comes from the model's own memory.
-    <a href="https://github.com/" target="_blank">View the source &amp; full findings log →</a>
-  </div>
+      <form class="composer" id="composer">
+        <label for="question" class="sr-only" style="position:absolute;left:-9999px">Your question</label>
+        <textarea id="question" rows="1" placeholder="How many planets were found by the transit method, and how does it work?"></textarea>
+        <div class="composer-bar">
+          <span class="kbd-hint"><kbd>Enter</kbd> to ask · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line · <kbd>/</kbd> to focus</span>
+          <button type="submit" class="send" id="sendBtn" disabled>
+            <span id="sendLabel">Ask</span>
+            <svg id="sendIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </form>
 
+      <div class="recent" id="recent"></div>
+    </section>
+
+    <section class="examples-wrap">
+      <div class="section-label">
+        <span>Try one of these</span>
+        <button class="link-btn" id="topicsToggle" type="button">Browse knowledge-base topics</button>
+      </div>
+      <div class="examples" id="examples"></div>
+      <div class="topics" id="topics"></div>
+    </section>
+
+    <section id="run">
+      <div>
+        <div class="card q-echo"><div class="avatar">You</div><p id="qEcho"></p></div>
+        <div class="card answer" id="answer"></div>
+        <div id="extras"></div>
+      </div>
+      <aside class="card pipeline" aria-live="polite">
+        <div class="pipeline-head">
+          <h3>How it's answering</h3>
+          <span class="timer" id="timer">0.0s</span>
+        </div>
+        <div id="plan"></div>
+        <ol class="steps" id="steps"></ol>
+        <div class="pipeline-foot" id="pipelineFoot">Running on a local model, so each step can take a few seconds.</div>
+      </aside>
+    </section>
+  </main>
+
+  <footer>
+    <div class="foot-grid">
+      <div><b>Structured data</b>NASA Exoplanet Archive (PSCompPars), pulled from NASA's public TAP API into a two-table Postgres schema.</div>
+      <div><b>Concepts</b>Curated Wikipedia articles, searched with full-text and vector search fused by Reciprocal Rank Fusion.</div>
+      <div><b>Grounding</b>Every number comes from a SQL row and every concept from a cited passage, never from the model's memory.</div>
+    </div>
+  </footer>
 </div>
+
+<div class="lightbox" id="lightbox"><img alt="Chart, enlarged" id="lightboxImg"></div>
+<div class="toast" id="toast"></div>
 
 <script>
-const API_BASE = '/api';
+const API = '/api';
+const REPO_URL = '';  // set to your GitHub repo URL to show the "Source" button
+const HISTORY_KEY = 'exo-agent:history';
 
-const questionEl = document.getElementById('question');
-const askBtn = document.getElementById('askBtn');
-const loadingEl = document.getElementById('loading');
-const loadingTextEl = document.getElementById('loadingText');
-const resultEl = document.getElementById('result');
-const answerCard = document.getElementById('answerCard');
-const answerText = document.getElementById('answerText');
-const caveatBox = document.getElementById('caveatBox');
-const sourcesSection = document.getElementById('sourcesSection');
-const sourcesLinks = document.getElementById('sourcesLinks');
-const chartWrap = document.getElementById('chartWrap');
-const chartImg = document.getElementById('chartImg');
-const metaRow = document.getElementById('metaRow');
-const traceToggle = document.getElementById('traceToggle');
-const tracePanel = document.getElementById('tracePanel');
-const examples = document.getElementById('examples');
-const routingSummary = document.getElementById('routingSummary');
-const routingReasoning = document.getElementById('routingReasoning');
-const routingRows = document.getElementById('routingRows');
-const topicsToggle = document.getElementById('topicsToggle');
-const topicsPanel = document.getElementById('topicsPanel');
-const topicsGrid = document.getElementById('topicsGrid');
-
-const LOADING_MESSAGES = [
-  'Planning the query…',
-  'Writing SQL against the schema…',
-  'Querying 6,298 real planets…',
-  'Checking the result shape…',
-  'Drafting the answer…',
+const EXAMPLES = [
+  { q: 'How many confirmed exoplanets are there?', kind: 'db' },
+  { q: 'How many planets were discovered each year since 2015?', kind: 'db' },
+  { q: 'Which planets orbit TRAPPIST-1?', kind: 'db' },
+  { q: 'How does the transit method actually work?', kind: 'wiki' },
+  { q: 'What is the habitable zone?', kind: 'wiki' },
+  { q: 'How many planets were found by the transit method, and how does that method work?', kind: 'both' },
 ];
+const KIND_LABEL = { db: 'NASA database', wiki: 'Wikipedia', both: 'Database + Wikipedia' };
 
-let loadingInterval = null;
+const $ = (id) => document.getElementById(id);
+const els = {
+  question: $('question'), composer: $('composer'), sendBtn: $('sendBtn'), sendLabel: $('sendLabel'), sendIcon: $('sendIcon'),
+  recent: $('recent'), examples: $('examples'), topics: $('topics'), topicsToggle: $('topicsToggle'),
+  qEcho: $('qEcho'), answer: $('answer'), extras: $('extras'), plan: $('plan'), steps: $('steps'),
+  timer: $('timer'), foot: $('pipelineFoot'), lightbox: $('lightbox'), lightboxImg: $('lightboxImg'), toast: $('toast'),
+};
 
-function startLoadingCycle() {
-  let i = 0;
-  loadingTextEl.textContent = LOADING_MESSAGES[0];
-  loadingInterval = setInterval(() => {
-    i = (i + 1) % LOADING_MESSAGES.length;
-    loadingTextEl.textContent = LOADING_MESSAGES[i];
-  }, 1800);
+const ICONS = {
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 8v5M12 16.5v.5"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>',
+  caveat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg>',
+  link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  send: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+};
+
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let controller = null;
+let timerHandle = null;
+let runStart = 0;
+let openSteps = new Set();
+
+/* ---------- helpers ---------- */
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-function stopLoadingCycle() {
-  clearInterval(loadingInterval);
+function toast(msg) {
+  els.toast.textContent = msg;
+  els.toast.classList.add('visible');
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => els.toast.classList.remove('visible'), 1800);
+}
+function tag(kind, text) { return `<span class="tag ${kind}">${esc(text || KIND_LABEL[kind])}</span>`; }
+
+function highlightSQL(sql) {
+  const KW = /\b(SELECT|FROM|WHERE|AND|OR|NOT|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|JOIN|LEFT|RIGHT|INNER|OUTER|ON|USING|AS|WITH|IN|IS|NULL|DISTINCT|CASE|WHEN|THEN|ELSE|END|DESC|ASC|BETWEEN|LIKE|ILIKE|UNION|ALL)\b/gi;
+  const FN = /\b(COUNT|AVG|SUM|MIN|MAX|ROUND|COALESCE|EXTRACT|CAST|LOWER|UPPER)\b(?=\s*\()/gi;
+  // Split on string literals first so keywords inside them stay plain
+  return sql.split(/('(?:[^']|'')*')/g).map((part, i) => {
+    if (i % 2) return `<span class="str">${esc(part)}</span>`;
+    return esc(part)
+      .replace(FN, '<span class="fn">$1</span>')
+      .replace(KW, (m) => `<span class="kw">${m.toUpperCase()}</span>`)
+      .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="num">$1</span>');
+  }).join('');
 }
 
-examples.addEventListener('click', (e) => {
-  const chip = e.target.closest('.chip');
-  if (!chip) return;
-  questionEl.value = chip.textContent;
-  askQuestion();
+function sourceTitle(url) {
+  try { return decodeURIComponent(url.split('/').pop().replace(/_/g, ' ')); } catch { return url; }
+}
+
+/* ---------- history (per-browser convenience only) ---------- */
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
+}
+function saveHistory(q) {
+  const list = [q, ...loadHistory().filter((x) => x !== q)].slice(0, 6);
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list)); } catch {}
+  renderHistory();
+}
+function renderHistory() {
+  const list = loadHistory();
+  els.recent.classList.toggle('visible', list.length > 0);
+  if (!list.length) { els.recent.innerHTML = ''; return; }
+  els.recent.innerHTML = '<span class="recent-label">Recent</span>' +
+    list.map((q) => `<button type="button" class="recent-chip" title="${esc(q)}">${esc(q)}</button>`).join('') +
+    '<button type="button" class="link-btn" id="clearHistory">Clear</button>';
+}
+els.recent.addEventListener('click', (e) => {
+  if (e.target.id === 'clearHistory') {
+    try { localStorage.removeItem(HISTORY_KEY); } catch {}
+    renderHistory();
+    return;
+  }
+  const chip = e.target.closest('.recent-chip');
+  if (chip) ask(chip.title);
 });
 
-topicsToggle.addEventListener('click', () => {
-  topicsPanel.classList.toggle('visible');
+/* ---------- examples + topics ---------- */
+els.examples.innerHTML = EXAMPLES.map((ex) =>
+  `<button type="button" class="example" data-q="${esc(ex.q)}">${tag(ex.kind)}<p>${esc(ex.q)}</p></button>`
+).join('');
+els.examples.addEventListener('click', (e) => {
+  const card = e.target.closest('.example');
+  if (card) ask(card.dataset.q);
 });
 
-topicsGrid.addEventListener('click', (e) => {
-  const chip = e.target.closest('.topic-chip');
-  if (!chip) return;
-  questionEl.value = chip.dataset.sampleQuestion || `Tell me about ${chip.dataset.title}`;
-  askQuestion();
-});
-
-async function loadTopics() {
+let topicsLoaded = false;
+els.topicsToggle.addEventListener('click', async () => {
+  const open = els.topics.classList.toggle('visible');
+  els.topicsToggle.textContent = open ? 'Hide topics' : 'Browse knowledge-base topics';
+  if (!open || topicsLoaded) return;
+  els.topics.innerHTML = '<span class="kbd-hint">Loading…</span>';
   try {
-    const res = await fetch(`${API_BASE}/topics`);
-    const data = await res.json();
-    topicsGrid.innerHTML = '';
+    const data = await (await fetch(`${API}/topics`)).json();
+    topicsLoaded = true;
+    els.topics.innerHTML = (data.topics || []).length
+      ? data.topics.map((t) => `<button type="button" class="topic" data-title="${esc(t.title)}">${esc(t.title)}</button>`).join('')
+      : '<span class="kbd-hint">No topics loaded yet.</span>';
+  } catch {
+    els.topics.innerHTML = '<span class="kbd-hint">Could not load topics.</span>';
+  }
+});
+els.topics.addEventListener('click', (e) => {
+  const t = e.target.closest('.topic');
+  if (t) ask(`What is ${t.dataset.title}, and how does it relate to finding exoplanets?`);
+});
 
-    if (!data.topics || data.topics.length === 0) {
-      topicsGrid.innerHTML = '<span style="color: var(--text-dim); font-family: \'JetBrains Mono\', monospace; font-size: 0.78rem;">No topics loaded yet — run the corpus downloader on the backend.</span>';
-      return;
+/* ---------- status + stats ---------- */
+function countUp(el, value) {
+  const target = Number(value) || 0;
+  if (reduceMotion) { el.textContent = target.toLocaleString(); return; }
+  const start = performance.now(), dur = 1100;
+  const tick = (now) => {
+    const p = Math.min(1, (now - start) / dur);
+    el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3))).toLocaleString();
+    if (p < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+async function loadStatus() {
+  try {
+    const data = await (await fetch(`${API}/health`)).json();
+    $('statusDot').className = 'dot ok';
+    const model = (data.model || '').match(/model=(\S+)/);
+    $('statusText').textContent = `${data.provider === 'ollama' ? 'Local' : 'API'} · ${model ? model[1] : 'ready'}`;
+    if (data.stats) {
+      document.querySelectorAll('[data-count]').forEach((el) => countUp(el, data.stats[el.dataset.count]));
+      $('heroCount').textContent = Number(data.stats.planets).toLocaleString();
+    } else {
+      $('stats').style.display = 'none';
     }
-
-    for (const topic of data.topics) {
-      const chip = document.createElement('span');
-      chip.className = 'topic-chip';
-      chip.textContent = topic.title;
-      chip.dataset.sampleQuestion = `What is ${topic.title}, and how does it relate to exoplanet discovery?`;
-      topicsGrid.appendChild(chip);
-    }
-  } catch (err) {
-    topicsGrid.innerHTML = '<span style="color: var(--text-dim); font-family: \'JetBrains Mono\', monospace; font-size: 0.78rem;">Could not load topics from the backend.</span>';
+  } catch {
+    $('statusDot').className = 'dot bad';
+    $('statusText').textContent = 'Backend offline';
+    $('stats').style.display = 'none';
   }
 }
-loadTopics();
+if (REPO_URL) { $('repoLink').href = REPO_URL; $('repoLink').style.display = ''; }
 
-questionEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
+/* ---------- composer ---------- */
+function autosize() {
+  els.question.style.height = 'auto';
+  els.question.style.height = Math.min(els.question.scrollHeight, 220) + 'px';
+  if (!controller) els.sendBtn.disabled = !els.question.value.trim();
+}
+els.question.addEventListener('input', autosize);
+els.question.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
-    askQuestion();
+    if (!controller) ask(els.question.value);
   }
 });
-askBtn.addEventListener('click', askQuestion);
-
-traceToggle.addEventListener('click', () => {
-  const isOpen = tracePanel.classList.toggle('visible');
-  traceToggle.classList.toggle('open', isOpen);
+els.composer.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (controller) stopRun(); else ask(els.question.value);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement !== els.question) { e.preventDefault(); els.question.focus(); }
+  if (e.key === 'Escape') {
+    if (els.lightbox.classList.contains('visible')) els.lightbox.classList.remove('visible');
+    else if (controller) stopRun();
+  }
 });
 
-async function askQuestion() {
-  const question = questionEl.value.trim();
-  if (!question) return;
+function setRunning(running) {
+  els.sendBtn.classList.toggle('stop', running);
+  els.sendLabel.textContent = running ? 'Stop' : 'Ask';
+  els.sendIcon.innerHTML = running ? '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>' : ICONS.send;
+  els.sendBtn.disabled = running ? false : !els.question.value.trim();
+}
 
-  askBtn.disabled = true;
-  resultEl.classList.remove('visible');
-  loadingEl.classList.add('visible');
-  startLoadingCycle();
-  tracePanel.classList.remove('visible');
-  traceToggle.classList.remove('open');
+/* ---------- running a question ---------- */
+async function ask(raw) {
+  const question = (raw || '').trim();
+  if (!question || controller) return;
+  els.question.value = question;
+  autosize();
+  saveHistory(question);
 
+  document.body.classList.add('has-run');
+  window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
+  els.qEcho.textContent = question;
+  els.answer.className = 'card answer';
+  els.answer.innerHTML = `
+    <div class="answer-head"><div class="answer-title"><div class="avatar">AI</div>Answer</div></div>
+    <div class="skeleton"><div></div><div></div><div></div><div></div></div>
+    <p class="skeleton-note">The answer appears once every part has been checked against the data.</p>`;
+  els.extras.innerHTML = '';
+  els.plan.innerHTML = '';
+  els.steps.innerHTML = '';
+  openSteps = new Set();
+  els.foot.textContent = 'Running on a local model, so each step can take a few seconds.';
+  setActivity('Starting…');
+
+  controller = new AbortController();
+  setRunning(true);
+  runStart = performance.now();
+  clearInterval(timerHandle);
+  timerHandle = setInterval(() => { els.timer.textContent = ((performance.now() - runStart) / 1000).toFixed(1) + 's'; }, 100);
+
+  let gotEvent = false;
   try {
-    const res = await fetch(`${API_BASE}/ask`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
+    const res = await fetch(`${API}/ask/stream`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }), signal: controller.signal,
+    });
+    if (!res.ok || !res.body) throw new Error(`stream unavailable (${res.status})`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const raw = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const data = raw.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trimStart()).join('\n');
+        if (!data) continue;
+        gotEvent = true;
+        handleEvent(JSON.parse(data));
+      }
+    }
+    if (!els.answer.dataset.done) throw new Error('The stream ended before an answer arrived.');
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      renderStopped();
+    } else if (!gotEvent) {
+      await fallbackAsk(question);   // e.g. a proxy that buffers streams
+    } else {
+      renderError(err.message || 'Lost the connection to the agent.');
+    }
+  } finally {
+    finishRun();
+  }
+}
+
+async function fallbackAsk(question) {
+  setActivity('Waiting for the full answer…');
+  try {
+    const res = await fetch(`${API}/ask`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }), signal: controller.signal,
     });
     const data = await res.json();
+    renderTrace(data.trace || []);
     renderResult(data);
   } catch (err) {
-    renderError('Could not reach the agent backend. Is the server running?');
-  } finally {
-    stopLoadingCycle();
-    loadingEl.classList.remove('visible');
-    askBtn.disabled = false;
+    if (err.name === 'AbortError') renderStopped();
+    else renderError('Could not reach the agent backend. Is the server running?');
   }
 }
 
-function renderResult(data) {
-  answerCard.classList.remove('error');
+function stopRun() { if (controller) controller.abort(); }
 
-  if (!data.success) {
-    renderError(data.error || 'The agent could not answer this question.');
-    return;
-  }
-
-  answerText.textContent = data.answer || '(no answer text returned)';
-
-  if (data.caveat) {
-    caveatBox.textContent = data.caveat;
-    caveatBox.style.display = 'block';
-  } else {
-    caveatBox.style.display = 'none';
-  }
-
-  if (data.sources && data.sources.length > 0) {
-    sourcesLinks.innerHTML = '';
-    for (const url of data.sources) {
-      const a = document.createElement('a');
-      a.className = 'source-link';
-      a.href = url;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      // Show a readable title from the URL slug rather than the full link
-      const slug = url.split('/').pop().replace(/_/g, ' ');
-      a.textContent = decodeURIComponent(slug);
-      sourcesLinks.appendChild(a);
-    }
-    sourcesSection.style.display = 'block';
-  } else {
-    sourcesSection.style.display = 'none';
-  }
-
-  if (data.chart_base64) {
-    chartImg.src = `data:image/png;base64,${data.chart_base64}`;
-    chartWrap.style.display = 'block';
-  } else {
-    chartWrap.style.display = 'none';
-  }
-
-  metaRow.innerHTML = '';
-  addMeta(`<b>${data.row_count ?? 0}</b> row(s) returned`);
-  if (data.sub_question_count > 1) {
-    addMeta(`split into <b>${data.sub_question_count}</b> sub-questions`);
-  }
-  addMeta(`<b>${data.elapsed_seconds.toFixed(1)}s</b> total`);
-  addMeta(`model: <b>${data.model_used}</b>`);
-
-  renderTrace(data.trace || []);
-  renderRoutingSummary(data.routing_summary || [], data.decomposition_reasoning);
-
-  resultEl.classList.add('visible');
+function finishRun() {
+  clearInterval(timerHandle);
+  els.timer.textContent = ((performance.now() - runStart) / 1000).toFixed(1) + 's';
+  const running = els.steps.querySelector('.step.running');
+  if (running) running.remove();
+  controller = null;
+  setRunning(false);
+  delete els.answer.dataset.done;
 }
 
-function renderRoutingSummary(rows, reasoning) {
-  if (!rows.length) {
-    routingSummary.style.display = 'none';
-    return;
-  }
-
-  routingRows.innerHTML = '';
-
-  if (reasoning && rows.length > 1) {
-    routingReasoning.textContent = reasoning;
-    routingReasoning.style.display = 'block';
-  } else {
-    routingReasoning.style.display = 'none';
-  }
-
-  for (const row of rows) {
-    const rowEl = document.createElement('div');
-    rowEl.className = 'routing-row';
-
-    const badges = document.createElement('div');
-    badges.className = 'routing-badges';
-    if (row.used_sql) {
-      const b = document.createElement('span');
-      b.className = 'routing-badge db';
-      b.textContent = '🗄 NASA DB';
-      badges.appendChild(b);
-    }
-    if (row.used_retrieval) {
-      const b = document.createElement('span');
-      b.className = 'routing-badge wiki';
-      b.textContent = '📖 Wikipedia';
-      badges.appendChild(b);
-    }
-
-    const content = document.createElement('div');
-    content.className = 'routing-content';
-
-    const questionTextEl = document.createElement('div');
-    questionTextEl.className = 'routing-question';
-    questionTextEl.textContent = row.text;
-    content.appendChild(questionTextEl);
-
-    const detail = document.createElement('div');
-    detail.className = 'routing-detail';
-    if (row.sql) {
-      const sqlLine = document.createElement('div');
-      sqlLine.textContent = row.sql;
-      detail.appendChild(sqlLine);
-    }
-    if (row.retrieved_titles && row.retrieved_titles.length > 0) {
-      const tagsWrap = document.createElement('div');
-      for (const title of row.retrieved_titles) {
-        const tag = document.createElement('span');
-        tag.className = 'wiki-tag';
-        tag.textContent = title;
-        tagsWrap.appendChild(tag);
-      }
-      detail.appendChild(tagsWrap);
-    }
-    content.appendChild(detail);
-
-    rowEl.appendChild(badges);
-    rowEl.appendChild(content);
-    routingRows.appendChild(rowEl);
-  }
-
-  routingSummary.style.display = 'block';
+function handleEvent(ev) {
+  if (ev.type === 'activity') setActivity(ev.message);
+  else if (ev.type === 'plan') renderPlan(ev);
+  else if (ev.type === 'trace') renderTrace(ev.trace);
+  else if (ev.type === 'result') { renderTrace(ev.result.trace || []); renderResult(ev.result); }
 }
 
-function renderError(message) {
-  answerCard.classList.add('error');
-  answerText.textContent = message;
-  caveatBox.style.display = 'none';
-  sourcesSection.style.display = 'none';
-  chartWrap.style.display = 'none';
-  routingSummary.style.display = 'none';
-  metaRow.innerHTML = '';
-  tracePanel.innerHTML = '';
-  resultEl.classList.add('visible');
+/* ---------- pipeline rendering ---------- */
+function setActivity(message) {
+  let row = els.steps.querySelector('.step.running');
+  if (!row) {
+    row = document.createElement('li');
+    row.className = 'step running';
+    row.innerHTML = '<span class="step-dot"><span class="spinner"></span></span><div class="step-btn"><span class="act"></span></div>';
+  }
+  row.querySelector('.act').textContent = message;
+  els.steps.appendChild(row);  // always keep it last
 }
 
-function addMeta(html) {
-  const span = document.createElement('span');
-  span.innerHTML = html;
-  metaRow.appendChild(span);
+function renderPlan(ev) {
+  const subs = ev.sub_questions || [];
+  const kindOf = (sq) => sq.needs_sql && sq.needs_retrieval ? 'both' : sq.needs_retrieval ? 'wiki' : 'db';
+  els.plan.innerHTML = `<div class="plan">
+    ${subs.length > 1 && ev.reasoning ? `<p class="plan-reason">${esc(ev.reasoning)}</p>` : ''}
+    ${subs.map((sq, i) => `<div class="plan-row">
+        <span class="n">${subs.length > 1 ? String(i + 1).padStart(2, '0') : '→'}</span>
+        <div><div>${esc(sq.text)}</div><div class="tags">${tag(kindOf(sq))}</div></div>
+      </div>`).join('')}
+  </div>`;
+}
+
+function stepKind(label) {
+  if (/self-repaired|no confident match|continued without/i.test(label)) return 'warn';
+  if (/failed/i.test(label)) return 'fail';
+  return 'ok';
 }
 
 function renderTrace(steps) {
-  tracePanel.innerHTML = '';
-  if (!steps.length) {
-    tracePanel.innerHTML = '<div class="trace-detail">No trace available for this run.</div>';
-    return;
-  }
-  for (const step of steps) {
-    const div = document.createElement('div');
-    div.className = 'trace-step';
-    const label = document.createElement('div');
-    label.className = 'trace-label';
-    label.textContent = step.label;
-    const detail = document.createElement('div');
-    detail.className = 'trace-detail';
-    detail.textContent = step.detail;
-    div.appendChild(label);
-    div.appendChild(detail);
-    tracePanel.appendChild(div);
-  }
+  const running = els.steps.querySelector('.step.running');
+  const existing = [...els.steps.querySelectorAll('.step:not(.running)')];
+  steps.forEach((step, i) => {
+    // Labels look like "3. Sub-question 2: Wrote SQL"; split the parts out
+    const m = step.label.match(/^\d+\.\s*(?:(Sub-question \d+):\s*)?(.*)$/);
+    const sub = m && m[1] ? m[1].replace('Sub-question', 'Part') : '';
+    const title = m ? m[2] : step.label;
+    const kind = stepKind(step.label);
+    const key = step.label + '\u0000' + step.detail;
+    let li = existing[i];
+    if (li && li.dataset.key === key) return;
+    if (!li) {
+      li = document.createElement('li');
+      els.steps.insertBefore(li, running);
+    }
+    li.dataset.key = key;
+    li.className = `step ${kind}${openSteps.has(i) ? ' open' : ''}`;
+    li.innerHTML = `<span class="step-dot">${kind === 'ok' ? ICONS.check : kind === 'warn' ? ICONS.warn : ICONS.x}</span>
+      <button type="button" class="step-btn" aria-expanded="${openSteps.has(i)}">
+        <span>${sub ? `<span class="step-sub">${esc(sub)}</span>` : ''}${esc(title)}</span>
+        <span class="chev">›</span>
+      </button>
+      <div class="step-detail">${esc(step.detail)}</div>`;
+    li.querySelector('.step-btn').addEventListener('click', () => {
+      const open = li.classList.toggle('open');
+      li.querySelector('.step-btn').setAttribute('aria-expanded', open);
+      open ? openSteps.add(i) : openSteps.delete(i);
+    });
+  });
+  existing.slice(steps.length).forEach((li) => li.remove());
 }
-</script>
 
+/* ---------- answer rendering ---------- */
+function typeOut(el, text) {
+  if (reduceMotion || text.length > 1600) { el.textContent = text; return; }
+  const words = text.split(/(\s+)/);
+  const perTick = Math.max(1, Math.ceil(words.length / 60));
+  let i = 0;
+  const tick = () => {
+    i = Math.min(words.length, i + perTick);
+    el.textContent = words.slice(0, i).join('');
+    if (i < words.length) requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function renderResult(data) {
+  els.answer.dataset.done = '1';
+  if (!data.success) { renderError(data.error || 'The agent could not answer this question.'); return; }
+
+  els.answer.className = 'card answer';
+  els.answer.innerHTML = `
+    <div class="answer-head">
+      <div class="answer-title"><div class="avatar">AI</div>Answer</div>
+      <button type="button" class="copy" id="copyAnswer">Copy</button>
+    </div>
+    <p class="answer-text" id="answerText"></p>
+    ${data.caveat ? `<div class="caveat">${ICONS.caveat}<span>${esc(data.caveat)}</span></div>` : ''}
+    ${(data.sources || []).length ? `<div class="sources">${data.sources.map((url) =>
+        `<a class="source" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ICONS.link}${esc(sourceTitle(url))}</a>`).join('')}</div>` : ''}
+    <div class="meta">
+      ${data.row_count != null ? `<span class="pill"><b>${data.row_count.toLocaleString()}</b> rows</span>` : ''}
+      ${data.sub_question_count > 1 ? `<span class="pill"><b>${data.sub_question_count}</b> parts</span>` : ''}
+      <span class="pill"><b>${data.elapsed_seconds.toFixed(1)}s</b></span>
+      <span class="pill">${esc((data.model_used.match(/model=(\S+)/) || [])[1] || data.model_used)}</span>
+    </div>`;
+  typeOut($('answerText'), data.answer || '(no answer text returned)');
+  $('copyAnswer').addEventListener('click', () => copy(data.answer || '', 'Answer copied'));
+
+  let extras = '';
+  if (data.chart_base64) {
+    extras += `<div class="card chart-card"><div class="card-label"><span>Chart</span><span>click to enlarge</span></div>
+      <img id="chartImg" alt="Chart generated from the query results" src="data:image/png;base64,${data.chart_base64}"></div>`;
+  }
+  if ((data.sql_statements || []).length) {
+    extras += `<div class="card sql-card"><div class="card-label"><span>SQL that ran</span>
+      <button type="button" class="copy" id="copySql">Copy</button></div>
+      ${data.sql_statements.map((s) => `<pre class="sql">${highlightSQL(s)}</pre>`).join('')}</div>`;
+  }
+  els.extras.innerHTML = extras;
+  const chart = $('chartImg');
+  if (chart) chart.addEventListener('click', () => { els.lightboxImg.src = chart.src; els.lightbox.classList.add('visible'); });
+  const copySql = $('copySql');
+  if (copySql) copySql.addEventListener('click', () => copy(data.sql_statements.join('\n\n'), 'SQL copied'));
+
+  els.foot.textContent = 'Done. Click any step to see exactly what the agent did.';
+}
+
+function renderError(message) {
+  els.answer.dataset.done = '1';
+  els.answer.className = 'card answer error';
+  els.answer.innerHTML = `<div class="answer-head"><div class="answer-title"><div class="avatar">!</div>Something went wrong</div></div>
+    <p class="answer-text">${esc(message)}</p>`;
+  els.foot.textContent = 'Steps that finished before the error are kept above.';
+}
+
+function renderStopped() {
+  els.answer.dataset.done = '1';
+  els.answer.className = 'card answer';
+  els.answer.innerHTML = `<div class="answer-head"><div class="answer-title"><div class="avatar">AI</div>Stopped</div></div>
+    <p class="answer-text" style="color:var(--text-2)">You stopped this run. Steps that finished are kept on the right.</p>`;
+  els.foot.textContent = 'Stopped.';
+}
+
+async function copy(text, msg) {
+  try { await navigator.clipboard.writeText(text); toast(msg); } catch { toast('Copy failed'); }
+}
+els.lightbox.addEventListener('click', () => els.lightbox.classList.remove('visible'));
+
+/* ---------- starfield ---------- */
+(function stars() {
+  const canvas = $('stars');
+  const ctx = canvas.getContext('2d');
+  let w, h, dpr, pts = [];
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = canvas.width = innerWidth * dpr; h = canvas.height = innerHeight * dpr;
+    canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
+    const n = Math.round((innerWidth * innerHeight) / 5500);
+    pts = Array.from({ length: n }, () => ({
+      x: Math.random() * w, y: Math.random() * h, r: (Math.random() * 1.1 + 0.25) * dpr,
+      a: Math.random() * 0.6 + 0.2, s: Math.random() * 0.02 + 0.004, p: Math.random() * Math.PI * 2,
+      warm: Math.random() < 0.12,
+    }));
+  }
+  function draw(t) {
+    ctx.clearRect(0, 0, w, h);
+    for (const s of pts) {
+      const tw = reduceMotion ? 1 : 0.65 + 0.35 * Math.sin(s.p + t * s.s * 0.06);
+      ctx.globalAlpha = s.a * tw;
+      ctx.fillStyle = s.warm ? '#FFD7A0' : '#DDE3FF';
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+    }
+    if (!reduceMotion) requestAnimationFrame(draw);
+  }
+  addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(draw);
+})();
+
+renderHistory();
+loadStatus();
+autosize();
+// Re-measure once web fonts and layout settle, or the first height is off
+window.addEventListener('load', autosize);
+if (document.fonts) document.fonts.ready.then(autosize);
+els.question.focus();
+</script>
 </body>
 </html>
