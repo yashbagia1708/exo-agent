@@ -137,26 +137,6 @@ class DecompositionPlan(BaseModel):
     )
 
 
-class SynthesizedInsight(BaseModel):
-    """
-    Final combined answer across all sub-questions, used only when a
-    question was decomposed into more than one sub-question. For the
-    common single-sub-question case, that sub-question's own Insight is
-    used directly with no separate synthesis step.
-    """
-
-    answer: str = Field(
-        description=(
-            "A single, coherent answer addressing every sub-question that "
-            "was asked, clearly distinguishing each part. Do not blend facts "
-            "from different sub-answers together -- present each sub-answer's "
-            "findings distinctly, even if briefly."
-        )
-    )
-    caveat: Optional[str] = Field(default=None)
-    sources_used: list[str] = Field(default_factory=list)
-
-
 class EntityExtraction(BaseModel):
     """
     Extracts a named planet/star mention from a question, verbatim --
