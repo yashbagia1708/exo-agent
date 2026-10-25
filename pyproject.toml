@@ -6,7 +6,45 @@ build-backend = "setuptools.build_meta"
 name = "exo-agent"
 version = "0.1.0"
 description = "NL-to-insight agent over NASA exoplanet data"
+readme = "README.md"
 requires-python = ">=3.10"
+dependencies = [
+    "psycopg2-binary>=2.9",
+    "instructor>=1.4",
+    "openai>=1.40",
+    "anthropic>=0.34",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+    "matplotlib>=3.8",
+    "langgraph>=0.2",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.6",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+# tests/ holds deterministic unit tests (no LLM, no database) and runs in CI.
+# eval/run_eval.py is the LLM-in-the-loop harness -- run it with `make eval`.
+testpaths = ["tests", "eval"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]  # long prompt strings are intentional
+
+[tool.ruff.lint.per-file-ignores]
+# These add src/ to sys.path before importing exo_agent so they run uninstalled
+"eval/run_eval.py" = ["E402"]
+"frontend/server.py" = ["E402"]

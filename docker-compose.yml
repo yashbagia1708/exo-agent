@@ -1,0 +1,27 @@
+# Local Postgres with pgvector + pg_trgm preinstalled.
+#   make db-up      start it
+#   make load-data  load the NASA tables and the wiki corpus
+#
+# Host port defaults to 5433 so it never collides with a local (e.g. Homebrew)
+# Postgres on 5432. Override with POSTGRES_PORT in .env; keep DB_DSN in sync.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: exo-agent-db
+    environment:
+      POSTGRES_DB: exoagent
+      POSTGRES_USER: exoagent
+      POSTGRES_PASSWORD: exoagent
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exoagent -d exoagent"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:

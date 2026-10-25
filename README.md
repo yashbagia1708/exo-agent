@@ -256,6 +256,10 @@ exo-agent/
 │   │                                 sources, charts, topic browser
 │   └── README.md                     how to run the demo
 │
+├── tests/                           ← deterministic unit tests, run by CI
+├── docker-compose.yml, docker/      ← local Postgres with pgvector + pg_trgm
+├── Makefile                         ← setup / load / serve / test shortcuts
+│
 ├── compare_models.py                side-by-side local-model comparison tool
 ├── test_provider.py                  quick smoke test for the provider layer
 └── PROJECT_CONTEXT.md               compact project-state summary for resuming
@@ -269,42 +273,32 @@ fixes → `src/exo_agent/graph.py` for the actual wiring → any individual
 
 ## Running it
 
+Needs Python 3.10+, Docker, and [Ollama](https://ollama.com). Everything
+runs locally and free.
+
 ```bash
-# 1. Structured data: download and load
-python3 data/download_data.py
-python3 data/load_to_postgres.py
-
-# 2. Unstructured data: download and load (RAG layer)
-python3 data/download_wiki_corpus.py
-PROVIDER=ollama python3 data/load_wiki_to_postgres.py
-# (needs pg_trgm + pgvector extensions and the nomic-embed-text model --
-#  see data/RAG_SETUP.md for full setup)
-
-# 3. Pull local models (free)
-ollama pull qwen2.5-coder:14b
-ollama pull nomic-embed-text
-ollama serve   # keep running in its own terminal
-
-# 4. Install dependencies
-pip install -r requirements.txt
-pip install -e .
-
-# 5. Ask it something
-PROVIDER=ollama python3 -m exo_agent.graph "How many confirmed exoplanets are there?"
-PROVIDER=ollama python3 -m exo_agent.graph "How does the transit method work, and how many planets were found that way?"
-
-# 6. Run the eval suite
-PROVIDER=ollama python3 eval/run_eval.py
-
-# 7. Or run the live demo UI
-cd frontend
-PROVIDER=ollama uvicorn server:app --reload --port 8420
-# open http://localhost:8420
+make setup        # .venv + dependencies, and .env copied from .env.example
+make db-up        # Postgres 16 + pgvector + pg_trgm in Docker, on localhost:5433
+ollama serve      # in its own terminal
+make models       # pulls qwen2.5-coder:14b and nomic-embed-text
+make load-data    # downloads NASA's planet table, loads it, embeds the wiki corpus
 ```
 
-See `data/README.md` and `data/RAG_SETUP.md` for full Postgres setup
-details, and `.env.example` for the environment variables needed to use
-Claude/OpenAI instead of Ollama.
+Then:
+
+```bash
+.venv/bin/python -m exo_agent.graph "How many confirmed exoplanets are there?"
+make serve        # live demo UI at http://localhost:8420
+make test         # deterministic unit tests (no LLM or database), same as CI
+make eval         # LLM eval harness: each question 5x, reports pass rates (slow)
+```
+
+`make help` lists every target. To use Claude or OpenAI instead of
+Ollama, set `PROVIDER` and the matching API key in `.env`.
+
+If you'd rather use an existing Postgres than Docker, point `DB_DSN` in
+`.env` at it; `data/README.md` and `data/RAG_SETUP.md` cover installing
+the extensions by hand.
 
 ## What I'd build next
 
