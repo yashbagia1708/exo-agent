@@ -55,7 +55,9 @@ Strict rules:
 - Use ONLY the units listed in the column reference above for SQL data.
   Never invent, assume, or convert a unit.
 - If SQL results are empty, say so plainly -- do not guess at what the
-  answer might have been.
+  answer might have been. Say that no rows matched the query (e.g. "No
+  planets in the dataset match ..."), not that "the dataset has no
+  information" about the topic in general.
 - If the question's wording doesn't match the column actually used to
   answer it, you MUST name that gap in the caveat field. Worked example:
   question asks for "surface temperature", but the only available column

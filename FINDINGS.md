@@ -1202,7 +1202,56 @@ tested; the ranking and distance fixes held 3/3 on one question. Open:
 an empty result from a wrong filter still gets reported as "the dataset
 has no information", which is the more general problem the TESS failure
 shows. A sanity check ("0 rows: did the filter use the right column?")
-before narrating an empty result would be the next fix.
+before narrating an empty result would be the next fix (done, see next
+entry).
+
+---
+
+## 2026-10-26 — Empty results from a bad filter were reported as "no data"; NULL "largest" again
+
+Follow-up to the previous entry's open item. "What is the largest planet
+found by TESS, and when was it discovered?" failed in 1/2 runs with "the
+dataset has no information about planets discovered by TESS". The SQL
+had filtered `discoverymethod ILIKE '%TESS%'` (TESS is a facility, not a
+method), got 0 rows, and the insight writer took the empty result at
+face value.
+
+**Fix, in code (executor.py):** when a query returns 0 rows,
+`empty_result_hint()` pulls out its text filters (`col = 'x'`,
+`col ILIKE '%x%'`) and looks each value up in every text column with
+plain SQL. If the value lives in a different column, or only matches as
+a substring of the same column, that goes back into the existing repair
+loop, e.g. "'TESS' appears in planets.disc_facility (1012 rows, e.g.
+'Transiting Exoplanet Survey Satellite (TESS)'). Filter on disc_facility
+instead." If it appears nowhere (a made-up star), the empty result is
+treated as real and there's no model call. The trace shows which case
+happened, and insight_writer now says "no planets match" rather than
+"the dataset has no information".
+
+**Found while verifying: the NULL-as-largest bug from 2026-06-22 is
+back.** With the filter fixed, two runs answered "BD+05 4868 A b" as the
+largest TESS planet. Its radius is NULL. Postgres sorts NULL first on
+`ORDER BY ... DESC`, and the schema note telling the model to add
+`IS NOT NULL` doesn't always get followed. `nulls_last()` now rewrites
+every `DESC` to `DESC NULLS LAST` before a query runs (string literals
+and explicit NULLS clauses are left alone), so this can't depend on the
+prompt any more.
+
+**Tests:** 7 new unit tests (`tests/test_empty_result.py`) with a fake
+database and model: wrong column, exact match on a longer value, a value
+that exists nowhere, numeric filters ignored, the full retry, no model
+call for a real empty result, and the NULLS LAST rewrite.
+
+**Live results (qwen2.5-coder:14b), TESS question, 3 runs after both
+fixes:** 3/3 "TOI-1408 b, discovered 2023", which matches a hand-written
+query (25 Earth radii). In 1 of the 3 the model filtered the wrong
+column first and the 0-row check repaired it. "Which planets orbit the
+star Zorblax Prime?" returned 0 rows with no repair, as it should.
+
+**Honest status:** both fixes are deterministic and tested; 3/3 on one
+question. The 0-row check only covers text filters on five known text
+columns; a wrong numeric filter that returns nothing still passes as a
+real empty result.
 
 ---
 
