@@ -1,0 +1,92 @@
+[
+  {
+    "title": "Exoplanet",
+    "file": "exoplanet.json",
+    "num_chunks": 41
+  },
+  {
+    "title": "Methods of detecting exoplanets",
+    "file": "methods_of_detecting_exoplanets.json",
+    "num_chunks": 45
+  },
+  {
+    "title": "Radial velocity",
+    "file": "radial_velocity.json",
+    "num_chunks": 16
+  },
+  {
+    "title": "Gravitational microlensing",
+    "file": "gravitational_microlensing.json",
+    "num_chunks": 32
+  },
+  {
+    "title": "Astrometry",
+    "file": "astrometry.json",
+    "num_chunks": 6
+  },
+  {
+    "title": "Habitable zone",
+    "file": "habitable_zone.json",
+    "num_chunks": 30
+  },
+  {
+    "title": "Stellar classification",
+    "file": "stellar_classification.json",
+    "num_chunks": 45
+  },
+  {
+    "title": "Planetary equilibrium temperature",
+    "file": "planetary_equilibrium_temperature.json",
+    "num_chunks": 20
+  },
+  {
+    "title": "Kepler space telescope",
+    "file": "kepler_space_telescope.json",
+    "num_chunks": 49
+  },
+  {
+    "title": "Transiting Exoplanet Survey Satellite",
+    "file": "transiting_exoplanet_survey_satellite.json",
+    "num_chunks": 27
+  },
+  {
+    "title": "TRAPPIST-1",
+    "file": "trappist-1.json",
+    "num_chunks": 40
+  },
+  {
+    "title": "Proxima Centauri b",
+    "file": "proxima_centauri_b.json",
+    "num_chunks": 17
+  },
+  {
+    "title": "Hot Jupiter",
+    "file": "hot_jupiter.json",
+    "num_chunks": 15
+  },
+  {
+    "title": "Super-Earth",
+    "file": "super-earth.json",
+    "num_chunks": 23
+  },
+  {
+    "title": "Planetary habitability",
+    "file": "planetary_habitability.json",
+    "num_chunks": 42
+  },
+  {
+    "title": "Biosignature",
+    "file": "biosignature.json",
+    "num_chunks": 41
+  },
+  {
+    "title": "Doppler spectroscopy",
+    "file": "doppler_spectroscopy.json",
+    "num_chunks": 12
+  },
+  {
+    "title": "NASA Exoplanet Archive",
+    "file": "nasa_exoplanet_archive.json",
+    "num_chunks": 5
+  }
+]

@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>exo-agent — ask the exoplanet archive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0B0E1A;
+    --panel: #141B2E;
+    --panel-2: #181F36;
+    --border: #2A3350;
+    --text: #E8E3D8;
+    --text-dim: #9098B5;
+    --amber: #D4A05C;
+    --slate: #5B7FA6;
+    --error: #C2685B;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+
+  /* ---------- starfield (pure CSS, no images) ---------- */
+  .starfield {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: var(--bg);
+  }
+  .star-layer {
+    position: absolute;
+    inset: 0;
+    background-repeat: repeat;
+  }
+  .star-layer.s1 {
+    background-image:
+      radial-gradient(1.5px 1.5px at 20% 30%, #E8E3D8 60%, transparent),
+      radial-gradient(1.5px 1.5px at 70% 65%, #E8E3D8 60%, transparent),
+      radial-gradient(1px 1px at 45% 12%, #E8E3D8 60%, transparent),
+      radial-gradient(1px 1px at 88% 40%, #E8E3D8 60%, transparent),
+      radial-gradient(1.5px 1.5px at 12% 80%, #E8E3D8 60%, transparent),
+      radial-gradient(1px 1px at 60% 90%, #E8E3D8 60%, transparent),
+      radial-gradient(1px 1px at 33% 55%, #E8E3D8 60%, transparent),
+      radial-gradient(1.5px 1.5px at 80% 8%, #E8E3D8 60%, transparent);
+    background-size: 600px 600px;
+    opacity: 0.5;
+    animation: drift 240s linear infinite;
+  }
+  .star-layer.s2 {
+    background-image:
+      radial-gradient(1px 1px at 15% 15%, var(--amber) 70%, transparent),
+      radial-gradient(1px 1px at 55% 75%, var(--text) 70%, transparent),
+      radial-gradient(1px 1px at 85% 55%, var(--text) 70%, transparent),
+      radial-gradient(1px 1px at 25% 90%, var(--amber) 70%, transparent);
+    background-size: 800px 800px;
+    opacity: 0.35;
+    animation: drift 380s linear infinite reverse;
+  }
+  @keyframes drift {
+    from { transform: translate(0, 0); }
+    to { transform: translate(-300px, -200px); }
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 5rem 1.5rem 6rem;
+  }
+
+  /* ---------- header / hero ---------- */
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--slate);
+    margin-bottom: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .eyebrow::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 8px var(--amber);
+  }
+
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: clamp(1.8rem, 4.5vw, 2.6rem);
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    margin-bottom: 0.9rem;
+  }
+  h1 em {
+    font-style: italic;
+    color: var(--amber);
+  }
+
+  .sub {
+    color: var(--text-dim);
+    font-size: 0.98rem;
+    line-height: 1.6;
+    max-width: 560px;
+    margin-bottom: 2.6rem;
+  }
+  .sub a { color: var(--slate); text-decoration: underline; text-decoration-color: var(--border); }
+
+  /* ---------- input ---------- */
+  .ask-box {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.4rem 1.4rem 1.1rem;
+    margin-bottom: 1rem;
+    transition: border-color 0.25s ease;
+  }
+  .ask-box:focus-within {
+    border-color: var(--slate);
+  }
+  textarea {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    resize: none;
+    color: var(--text);
+    font-family: 'Fraunces', serif;
+    font-size: 1.18rem;
+    line-height: 1.45;
+    min-height: 2.6rem;
+    font-weight: 400;
+  }
+  textarea::placeholder { color: #535d80; font-style: italic; }
+
+  .ask-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.9rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--border);
+  }
+  .hint {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: #535d80;
+  }
+  button.ask {
+    background: var(--amber);
+    color: #1A1306;
+    border: none;
+    border-radius: 9px;
+    padding: 0.6rem 1.3rem;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  button.ask:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 18px rgba(212, 160, 92, 0.25);
+  }
+  button.ask:disabled { opacity: 0.5; cursor: default; }
+
+  .examples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 3.2rem;
+  }
+  .chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.74rem;
+    color: var(--text-dim);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 0.4rem 0.85rem;
+    cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease;
+  }
+  .chip:hover { border-color: var(--slate); color: var(--text); }
+
+  /* ---------- answer area ---------- */
+  #result { display: none; }
+  #result.visible { display: block; animation: rise 0.5s ease; }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .loading {
+    display: none;
+    align-items: center;
+    gap: 0.7rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    color: var(--slate);
+    padding: 1.5rem 0;
+  }
+  .loading.visible { display: flex; }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--amber);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .answer-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.8rem;
+    margin-bottom: 1rem;
+  }
+  .answer-card.error { border-color: var(--error); }
+  .answer-text {
+    font-family: 'Fraunces', serif;
+    font-size: 1.15rem;
+    line-height: 1.6;
+    color: var(--text);
+    margin-bottom: 0;
+  }
+  .caveat {
+    margin-top: 1.1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--border);
+    font-size: 0.86rem;
+    color: var(--amber);
+    line-height: 1.5;
+  }
+  .caveat::before { content: '⚠ '; opacity: 0.8; }
+
+  .sources-section {
+    margin-top: 1.1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--border);
+  }
+  .sources-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 0.6rem;
+  }
+  .source-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--slate);
+    text-decoration: none;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 0.35rem 0.8rem;
+    margin: 0 0.4rem 0.4rem 0;
+    transition: border-color 0.2s ease, color 0.2s ease;
+  }
+  .source-link:hover { border-color: var(--slate); color: var(--text); }
+  .source-link::before { content: '🔗'; font-size: 0.7rem; opacity: 0.7; }
+
+  /* ---------- routing summary card ---------- */
+  .routing-summary {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.3rem 1.4rem;
+    margin-bottom: 1rem;
+  }
+  .routing-summary-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 0.5rem;
+  }
+  .routing-reasoning {
+    font-size: 0.86rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px dashed var(--border);
+  }
+  .routing-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    padding: 0.7rem 0;
+  }
+  .routing-row + .routing-row { border-top: 1px solid var(--border); }
+  .routing-badges { display: flex; flex-direction: column; gap: 0.35rem; flex-shrink: 0; min-width: 92px; }
+  .routing-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.02em;
+    border-radius: 6px;
+    padding: 0.25rem 0.55rem;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .routing-badge.db { background: rgba(91, 127, 166, 0.18); color: var(--slate); border: 1px solid rgba(91, 127, 166, 0.35); }
+  .routing-badge.wiki { background: rgba(212, 160, 92, 0.15); color: var(--amber); border: 1px solid rgba(212, 160, 92, 0.35); }
+  .routing-content { flex: 1; min-width: 0; }
+  .routing-question { font-size: 0.92rem; color: var(--text); margin-bottom: 0.35rem; }
+  .routing-detail {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .routing-detail .wiki-tag {
+    display: inline-block;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 0.15rem 0.55rem;
+    margin: 0.15rem 0.3rem 0 0;
+    color: var(--amber);
+  }
+
+  /* ---------- topics panel ---------- */
+  .topics-toggle {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.74rem;
+    color: var(--text-dim);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: var(--border);
+    padding: 0;
+    margin-bottom: 2.6rem;
+    display: block;
+  }
+  .topics-toggle:hover { color: var(--text); text-decoration-color: var(--slate); }
+  .topics-panel {
+    display: none;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.3rem 1.4rem;
+    margin-top: -1.6rem;
+    margin-bottom: 2.6rem;
+  }
+  .topics-panel.visible { display: block; }
+  .topics-panel-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 0.3rem;
+  }
+  .topics-panel-sub {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    margin-bottom: 1rem;
+    line-height: 1.5;
+  }
+  .topics-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .topic-chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.74rem;
+    color: var(--amber);
+    background: var(--panel-2);
+    border: 1px solid rgba(212, 160, 92, 0.3);
+    border-radius: 100px;
+    padding: 0.4rem 0.85rem;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .topic-chip:hover { border-color: var(--amber); background: rgba(212, 160, 92, 0.1); }
+
+  .chart-wrap {
+    margin: 1rem 0;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: #fff;
+  }
+  .chart-wrap img { width: 100%; display: block; }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.4rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-bottom: 1.3rem;
+    padding: 0 0.2rem;
+  }
+  .meta-row span b { color: var(--text); font-weight: 500; }
+
+  /* ---------- trace toggle ---------- */
+  .trace-toggle {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.85rem 1.2rem;
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: border-color 0.2s ease, color 0.2s ease;
+  }
+  .trace-toggle:hover { border-color: var(--slate); color: var(--text); }
+  .trace-toggle .arrow { transition: transform 0.25s ease; }
+  .trace-toggle.open .arrow { transform: rotate(90deg); }
+
+  .trace-panel {
+    display: none;
+    margin-top: 0.9rem;
+    padding: 1.6rem 1.4rem 0.4rem 1.4rem;
+    border-left: 1px solid rgba(212, 160, 92, 0.35);
+    margin-left: 0.9rem;
+  }
+  .trace-panel.visible { display: block; }
+
+  .trace-step {
+    position: relative;
+    padding-bottom: 1.7rem;
+    padding-left: 1.4rem;
+  }
+  .trace-step::before {
+    content: '✓';
+    position: absolute;
+    left: -1.18rem;
+    top: -0.05rem;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--amber);
+    color: #1A1306;
+    border: 2px solid var(--amber);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    box-shadow: 0 0 6px rgba(212, 160, 92, 0.45);
+  }
+  .trace-step:last-child { padding-bottom: 0; }
+  .trace-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--amber);
+    margin-bottom: 0.4rem;
+    letter-spacing: 0.01em;
+  }
+  .trace-detail {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.76rem;
+    line-height: 1.6;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.8rem 0.9rem;
+  }
+
+  /* ---------- footer / data source note ---------- */
+  .source-note {
+    margin-top: 3rem;
+    padding-top: 1.6rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .source-note b { color: var(--text); }
+  .source-note a { color: var(--slate); text-decoration: none; border-bottom: 1px solid var(--border); }
+  .source-note a:hover { border-color: var(--slate); }
+
+  @media (max-width: 540px) {
+    .wrap { padding: 3.2rem 1.2rem 4rem; }
+    h1 { font-size: 1.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="starfield">
+  <div class="star-layer s1"></div>
+  <div class="star-layer s2"></div>
+</div>
+
+<div class="wrap">
+
+  <div class="eyebrow">exo-agent · live demo</div>
+  <h1>Ask anything about the <em>6,298</em> confirmed exoplanets NASA knows about — or how we found them.</h1>
+  <p class="sub">
+    This runs a real agent — it plans, then routes each question to a live
+    PostgreSQL database, a hybrid (lexical + semantic) search over
+    Wikipedia, or both. No fact below comes from the model's memory; every
+    number traces back to a real row in the database, and every concept
+    traces back to a cited source. Click <b>"how it got this answer"</b>
+    after any response to see every step.
+  </p>
+
+  <div class="ask-box">
+    <textarea id="question" placeholder="e.g. How many planets were found by the transit method, and how does that method work?" rows="2"></textarea>
+    <div class="ask-row">
+      <span class="hint">⏎ to ask</span>
+      <button class="ask" id="askBtn">Ask the archive</button>
+    </div>
+  </div>
+
+  <div class="examples" id="examples">
+    <div class="chip">How many confirmed exoplanets are there?</div>
+    <div class="chip">How does the transit method actually work?</div>
+    <div class="chip">How many planets were found by the transit method, and how does that work?</div>
+    <div class="chip">Which planets orbit TRAPPIST-1?</div>
+  </div>
+
+  <button class="topics-toggle" id="topicsToggle">What concepts can I ask about? (Wikipedia topics) ›</button>
+  <div class="topics-panel" id="topicsPanel">
+    <div class="topics-panel-title">Concept knowledge base</div>
+    <p class="topics-panel-sub">
+      Questions touching any of these topics trigger hybrid search (lexical + semantic, RRF-fused) over the real Wikipedia article — not the structured database. Click one to try it.
+    </p>
+    <div class="topics-grid" id="topicsGrid">
+      <span style="color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;">Loading topics…</span>
+    </div>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <span id="loadingText">Planning the query…</span>
+  </div>
+
+  <div id="result">
+    <div class="meta-row" id="metaRow"></div>
+    <div class="answer-card" id="answerCard">
+      <p class="answer-text" id="answerText"></p>
+      <div class="caveat" id="caveatBox" style="display:none;"></div>
+      <div class="sources-section" id="sourcesSection" style="display:none;">
+        <div class="sources-label">Sources used</div>
+        <div id="sourcesLinks"></div>
+      </div>
+    </div>
+    <div class="chart-wrap" id="chartWrap" style="display:none;">
+      <img id="chartImg" alt="Generated chart" />
+    </div>
+    <div class="routing-summary" id="routingSummary" style="display:none;">
+      <div class="routing-summary-title">How the question was routed</div>
+      <div class="routing-reasoning" id="routingReasoning" style="display:none;"></div>
+      <div id="routingRows"></div>
+    </div>
+    <button class="trace-toggle" id="traceToggle">
+      <span>Full step-by-step trace</span>
+      <span class="arrow">›</span>
+    </button>
+    <div class="trace-panel" id="tracePanel"></div>
+  </div>
+
+  <div class="source-note">
+    <b>Structured data:</b> NASA Exoplanet Archive, PSCompPars table —
+    downloaded directly via NASA's public TAP API. 6,298 confirmed planets
+    across 4,716 host stars, in a real two-table PostgreSQL schema.
+    <br><br>
+    <b>Conceptual knowledge:</b> 18 Wikipedia articles on detection methods
+    and astronomy concepts, retrieved via hybrid search — lexical
+    (full-text) and semantic (vector embeddings) search combined with
+    Reciprocal Rank Fusion, not just one or the other.
+    <br><br>
+    <b>How answers are derived:</b> a planner first decides whether a
+    question needs the database, retrieval, or both — splitting it into
+    separate sub-questions if it asks for genuinely unrelated things. Every
+    number comes from a real SQL row; every concept comes from a cited
+    passage. Neither comes from the model's own memory.
+    <a href="https://github.com/" target="_blank">View the source &amp; full findings log →</a>
+  </div>
+
+</div>
+
+<script>
+const API_BASE = '/api';
+
+const questionEl = document.getElementById('question');
+const askBtn = document.getElementById('askBtn');
+const loadingEl = document.getElementById('loading');
+const loadingTextEl = document.getElementById('loadingText');
+const resultEl = document.getElementById('result');
+const answerCard = document.getElementById('answerCard');
+const answerText = document.getElementById('answerText');
+const caveatBox = document.getElementById('caveatBox');
+const sourcesSection = document.getElementById('sourcesSection');
+const sourcesLinks = document.getElementById('sourcesLinks');
+const chartWrap = document.getElementById('chartWrap');
+const chartImg = document.getElementById('chartImg');
+const metaRow = document.getElementById('metaRow');
+const traceToggle = document.getElementById('traceToggle');
+const tracePanel = document.getElementById('tracePanel');
+const examples = document.getElementById('examples');
+const routingSummary = document.getElementById('routingSummary');
+const routingReasoning = document.getElementById('routingReasoning');
+const routingRows = document.getElementById('routingRows');
+const topicsToggle = document.getElementById('topicsToggle');
+const topicsPanel = document.getElementById('topicsPanel');
+const topicsGrid = document.getElementById('topicsGrid');
+
+const LOADING_MESSAGES = [
+  'Planning the query…',
+  'Writing SQL against the schema…',
+  'Querying 6,298 real planets…',
+  'Checking the result shape…',
+  'Drafting the answer…',
+];
+
+let loadingInterval = null;
+
+function startLoadingCycle() {
+  let i = 0;
+  loadingTextEl.textContent = LOADING_MESSAGES[0];
+  loadingInterval = setInterval(() => {
+    i = (i + 1) % LOADING_MESSAGES.length;
+    loadingTextEl.textContent = LOADING_MESSAGES[i];
+  }, 1800);
+}
+function stopLoadingCycle() {
+  clearInterval(loadingInterval);
+}
+
+examples.addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  questionEl.value = chip.textContent;
+  askQuestion();
+});
+
+topicsToggle.addEventListener('click', () => {
+  topicsPanel.classList.toggle('visible');
+});
+
+topicsGrid.addEventListener('click', (e) => {
+  const chip = e.target.closest('.topic-chip');
+  if (!chip) return;
+  questionEl.value = chip.dataset.sampleQuestion || `Tell me about ${chip.dataset.title}`;
+  askQuestion();
+});
+
+async function loadTopics() {
+  try {
+    const res = await fetch(`${API_BASE}/topics`);
+    const data = await res.json();
+    topicsGrid.innerHTML = '';
+
+    if (!data.topics || data.topics.length === 0) {
+      topicsGrid.innerHTML = '<span style="color: var(--text-dim); font-family: \'JetBrains Mono\', monospace; font-size: 0.78rem;">No topics loaded yet — run the corpus downloader on the backend.</span>';
+      return;
+    }
+
+    for (const topic of data.topics) {
+      const chip = document.createElement('span');
+      chip.className = 'topic-chip';
+      chip.textContent = topic.title;
+      chip.dataset.sampleQuestion = `What is ${topic.title}, and how does it relate to exoplanet discovery?`;
+      topicsGrid.appendChild(chip);
+    }
+  } catch (err) {
+    topicsGrid.innerHTML = '<span style="color: var(--text-dim); font-family: \'JetBrains Mono\', monospace; font-size: 0.78rem;">Could not load topics from the backend.</span>';
+  }
+}
+loadTopics();
+
+questionEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    askQuestion();
+  }
+});
+askBtn.addEventListener('click', askQuestion);
+
+traceToggle.addEventListener('click', () => {
+  const isOpen = tracePanel.classList.toggle('visible');
+  traceToggle.classList.toggle('open', isOpen);
+});
+
+async function askQuestion() {
+  const question = questionEl.value.trim();
+  if (!question) return;
+
+  askBtn.disabled = true;
+  resultEl.classList.remove('visible');
+  loadingEl.classList.add('visible');
+  startLoadingCycle();
+  tracePanel.classList.remove('visible');
+  traceToggle.classList.remove('open');
+
+  try {
+    const res = await fetch(`${API_BASE}/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    });
+    const data = await res.json();
+    renderResult(data);
+  } catch (err) {
+    renderError('Could not reach the agent backend. Is the server running?');
+  } finally {
+    stopLoadingCycle();
+    loadingEl.classList.remove('visible');
+    askBtn.disabled = false;
+  }
+}
+
+function renderResult(data) {
+  answerCard.classList.remove('error');
+
+  if (!data.success) {
+    renderError(data.error || 'The agent could not answer this question.');
+    return;
+  }
+
+  answerText.textContent = data.answer || '(no answer text returned)';
+
+  if (data.caveat) {
+    caveatBox.textContent = data.caveat;
+    caveatBox.style.display = 'block';
+  } else {
+    caveatBox.style.display = 'none';
+  }
+
+  if (data.sources && data.sources.length > 0) {
+    sourcesLinks.innerHTML = '';
+    for (const url of data.sources) {
+      const a = document.createElement('a');
+      a.className = 'source-link';
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      // Show a readable title from the URL slug rather than the full link
+      const slug = url.split('/').pop().replace(/_/g, ' ');
+      a.textContent = decodeURIComponent(slug);
+      sourcesLinks.appendChild(a);
+    }
+    sourcesSection.style.display = 'block';
+  } else {
+    sourcesSection.style.display = 'none';
+  }
+
+  if (data.chart_base64) {
+    chartImg.src = `data:image/png;base64,${data.chart_base64}`;
+    chartWrap.style.display = 'block';
+  } else {
+    chartWrap.style.display = 'none';
+  }
+
+  metaRow.innerHTML = '';
+  addMeta(`<b>${data.row_count ?? 0}</b> row(s) returned`);
+  if (data.sub_question_count > 1) {
+    addMeta(`split into <b>${data.sub_question_count}</b> sub-questions`);
+  }
+  addMeta(`<b>${data.elapsed_seconds.toFixed(1)}s</b> total`);
+  addMeta(`model: <b>${data.model_used}</b>`);
+
+  renderTrace(data.trace || []);
+  renderRoutingSummary(data.routing_summary || [], data.decomposition_reasoning);
+
+  resultEl.classList.add('visible');
+}
+
+function renderRoutingSummary(rows, reasoning) {
+  if (!rows.length) {
+    routingSummary.style.display = 'none';
+    return;
+  }
+
+  routingRows.innerHTML = '';
+
+  if (reasoning && rows.length > 1) {
+    routingReasoning.textContent = reasoning;
+    routingReasoning.style.display = 'block';
+  } else {
+    routingReasoning.style.display = 'none';
+  }
+
+  for (const row of rows) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'routing-row';
+
+    const badges = document.createElement('div');
+    badges.className = 'routing-badges';
+    if (row.used_sql) {
+      const b = document.createElement('span');
+      b.className = 'routing-badge db';
+      b.textContent = '🗄 NASA DB';
+      badges.appendChild(b);
+    }
+    if (row.used_retrieval) {
+      const b = document.createElement('span');
+      b.className = 'routing-badge wiki';
+      b.textContent = '📖 Wikipedia';
+      badges.appendChild(b);
+    }
+
+    const content = document.createElement('div');
+    content.className = 'routing-content';
+
+    const questionTextEl = document.createElement('div');
+    questionTextEl.className = 'routing-question';
+    questionTextEl.textContent = row.text;
+    content.appendChild(questionTextEl);
+
+    const detail = document.createElement('div');
+    detail.className = 'routing-detail';
+    if (row.sql) {
+      const sqlLine = document.createElement('div');
+      sqlLine.textContent = row.sql;
+      detail.appendChild(sqlLine);
+    }
+    if (row.retrieved_titles && row.retrieved_titles.length > 0) {
+      const tagsWrap = document.createElement('div');
+      for (const title of row.retrieved_titles) {
+        const tag = document.createElement('span');
+        tag.className = 'wiki-tag';
+        tag.textContent = title;
+        tagsWrap.appendChild(tag);
+      }
+      detail.appendChild(tagsWrap);
+    }
+    content.appendChild(detail);
+
+    rowEl.appendChild(badges);
+    rowEl.appendChild(content);
+    routingRows.appendChild(rowEl);
+  }
+
+  routingSummary.style.display = 'block';
+}
+
+function renderError(message) {
+  answerCard.classList.add('error');
+  answerText.textContent = message;
+  caveatBox.style.display = 'none';
+  sourcesSection.style.display = 'none';
+  chartWrap.style.display = 'none';
+  routingSummary.style.display = 'none';
+  metaRow.innerHTML = '';
+  tracePanel.innerHTML = '';
+  resultEl.classList.add('visible');
+}
+
+function addMeta(html) {
+  const span = document.createElement('span');
+  span.innerHTML = html;
+  metaRow.appendChild(span);
+}
+
+function renderTrace(steps) {
+  tracePanel.innerHTML = '';
+  if (!steps.length) {
+    tracePanel.innerHTML = '<div class="trace-detail">No trace available for this run.</div>';
+    return;
+  }
+  for (const step of steps) {
+    const div = document.createElement('div');
+    div.className = 'trace-step';
+    const label = document.createElement('div');
+    label.className = 'trace-label';
+    label.textContent = step.label;
+    const detail = document.createElement('div');
+    detail.className = 'trace-detail';
+    detail.textContent = step.detail;
+    div.appendChild(label);
+    div.appendChild(detail);
+    tracePanel.appendChild(div);
+  }
+}
+</script>
+
+</body>
+</html>

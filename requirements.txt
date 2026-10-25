@@ -1,0 +1,10 @@
+psycopg2-binary>=2.9
+instructor>=1.4
+openai>=1.40
+anthropic>=0.34
+pydantic>=2.7
+python-dotenv>=1.0
+matplotlib>=3.8
+langgraph>=0.2
+fastapi>=0.110
+uvicorn>=0.29
