@@ -7,7 +7,7 @@ A natural-language-to-insight agent over real NASA exoplanet data. Ask a
 question in plain English; it decomposes compound questions, routes each
 part to a live PostgreSQL database and/or a hybrid Wikipedia search,
 verifies named entities against real data instead of guessing, decides
-whether a chart would help, and answers in plain English — grounded
+whether a chart would help, and answers in plain English, grounded
 strictly in what the data and retrieved sources actually show.
 
 Built to learn agentic AI patterns properly: multi-step decomposition,
@@ -27,18 +27,36 @@ prompt-and-pray chatbot.
       that operated from 2009 to 2018..." (with a cited source link)
 ```
 
+## Screenshots
+
+The demo UI runs locally (`python3 launch.py`) and shows each step as the
+agent works.
+
+![Home page with live dataset counts, the question box and example questions](docs/screenshots/home.png)
+
+**A compound question.** The planner splits it in two, sends one part to
+the NASA database and the other to Wikipedia, and the trace on the right
+shows each step. The SQL that ran sits under the answer.
+
+![A two-part question answered from SQL and Wikipedia, with the step-by-step trace](docs/screenshots/compound.png)
+
+**A chart question.** The chart is drawn from the rows the query actually
+returned, and the agent decides on its own whether a chart helps.
+
+![Planets per discovery method, answered with a bar chart](docs/screenshots/chart.png)
+
 ## Why this exists
 
 I work as a Data Analyst, and I kept finding myself reaching for AI and
-automation beyond what the role strictly asked for — automating manual
+automation beyond what the role strictly asked for: automating manual
 ETL steps, building an internal NL-to-SQL assistant, that kind of thing.
 This project is the next step: building a genuinely agentic system from
 scratch, with the discipline (evaluation, repair loops, grounding) that
 separates "a chatbot that demos well" from a system you can actually
 trust.
 
-It's deliberately built on a topic I'm personally curious about — NASA's
-real exoplanet catalogue — rather than another retail/Titanic dataset.
+It's deliberately built on a topic I'm personally curious about (NASA's
+real exoplanet catalogue) rather than another retail/Titanic dataset.
 
 ## Architecture
 
@@ -69,43 +87,43 @@ planner ──► decomposes into 1-N sub-questions, each independently routed
                               │
                               v
                        synthesizer ──► sub-answers stitched together verbatim
-                       (skipped — passthrough — if there was only
+                       (skipped, as a passthrough, if there was only
                         1 sub-question, the common case)
 ```
 
 Implemented as a real [LangGraph](https://github.com/langchain-ai/langgraph)
-`StateGraph` (`src/exo_agent/graph.py`) — an outer graph runs the
+`StateGraph` (`src/exo_agent/graph.py`): an outer graph runs the
 planner/synthesizer, and an inner compiled sub-graph runs once per
 sub-question. Chart generation and tool routing are genuine conditional
 edges, not if-statements hidden inside a node. Sub-questions run
-sequentially (not LangGraph's parallel `Send` fan-out) — a deliberate
+sequentially (not LangGraph's parallel `Send` fan-out). That's a deliberate
 choice since most real input is 1 sub-question anyway, sequential output
 stays readable in trace order, and a single local Ollama instance can't
 meaningfully parallelize multiple concurrent calls regardless.
 
 ### The two knowledge sources
 
-- **Structured data** — real SQL against a live PostgreSQL database of
+- **Structured data:** real SQL against a live PostgreSQL database of
   every confirmed exoplanet (6,451 as of the latest download). Used for counts, comparisons, trends,
   named-entity lookups.
-- **Unstructured knowledge** — hybrid search (lexical full-text +
+- **Unstructured knowledge:** hybrid search (lexical full-text +
   semantic vector search, fused via Reciprocal Rank Fusion) over 18
   curated Wikipedia articles on detection methods and astronomy concepts.
   Used for "what is X" / "how does X work" questions with no column in
   the database.
 
 The planner decides per-sub-question which source(s) a question actually
-needs — this is the agent's real routing/tool-selection behavior, not a
+needs. This is the agent's real routing/tool-selection behavior, not a
 fixed pipeline that always runs both.
 
 ## What makes this more than a wrapper around an LLM
 
 - **Grounded, not memorized.** The agent never states a number or fact
-  from memory — every number traces back to a real SQL row, every
+  from memory: every number traces back to a real SQL row, every
   concept traces back to a cited, retrieved Wikipedia passage.
 - **Verifies named entities instead of guessing them.** When a question
   names a specific planet/star, `entity_resolver.py` looks it up against
-  the real database using Postgres's `pg_trgm` trigram similarity —
+  the real database using Postgres's `pg_trgm` trigram similarity:
   deterministic string matching, not an LLM guess at catalogue naming
   conventions (e.g. correctly resolving "Proxima Centauri b" to the real
   stored value "Proxima Cen b"). See FINDINGS.md for the bug this fixed.
@@ -116,7 +134,7 @@ fixed pipeline that always runs both.
   that error fed back to the model.
 - **Decomposes compound questions.** A message joining two unrelated
   asks ("list X, and also tell me Y") is split into independent
-  sub-questions before any SQL is written — fixing a real bug where a
+  sub-questions before any SQL is written, fixing a real bug where a
   fused query silently answered neither part correctly.
 - **Provider-agnostic by design.** Every LLM call goes through one
   `instructor`-wrapped client (`src/exo_agent/providers/factory.py`).
@@ -125,7 +143,7 @@ fixed pipeline that always runs both.
   changes to any node's logic.
 - **Evaluated, not vibe-checked.** `eval/run_eval.py` runs each
   hand-written test question 5 times and reports a *pass rate*, not a
-  single pass/fail — because LLM behavior on identical input isn't
+  single pass/fail, because LLM behavior on identical input isn't
   deterministic, and a single clean test run can be misleading (see
   FINDINGS.md for a real, concrete example of exactly this).
 - **A live, inspectable demo.** The frontend (`frontend/`) streams a
@@ -142,10 +160,10 @@ Run against `qwen2.5-coder:14b` (local, free, via Ollama), on the June
 
 | Tier | What it tests | Pass rate |
 |---|---|---|
-| 1 — basic lookups | Simple counts, filters, ORDER BY | 22/25 (88%) |
-| 2 — joins & aggregation | Multi-table joins, GROUP BY | 17/20 (85%) |
-| 3 — time trends | Chart-worthy trend questions | 10/10 (100%) |
-| 5 — limits & refusal | Should the agent decline/caveat? | 10/15 (67%) |
+| 1: basic lookups | Simple counts, filters, ORDER BY | 22/25 (88%) |
+| 2: joins & aggregation | Multi-table joins, GROUP BY | 17/20 (85%) |
+| 3: time trends | Chart-worthy trend questions | 10/10 (100%) |
+| 5: limits & refusal | Should the agent decline/caveat? | 10/15 (67%) |
 
 The tier 5 number is the most important one, and it's the one I'd flag
 first in an interview rather than hide: **the question "which planet has
@@ -154,13 +172,13 @@ Questions with a real proxy column to fall back on (e.g. "surface
 temperature" → equilibrium temperature) are handled fairly reliably (4/5).
 Questions with *no* answerable basis at all in the dataset are handled
 much less reliably. That's a genuine, current limitation of this system,
-not a solved problem — seeing this clearly is the actual point of having
+not a solved problem. Seeing this clearly is the actual point of having
 an eval harness instead of just trying a few demo questions and feeling
 good about it.
 
 **A second limitation, found and then fixed: the synthesis step.** When a
 compound question split into 3+ sub-questions and one asked for something
-outside the schema (e.g. "which planet has the highest radial velocity" —
+outside the schema (e.g. "which planet has the highest radial velocity";
 there's no measured velocity column, only a detection-method label), the
 step that combined sub-answers was itself an LLM call, and it broke
 grounding twice: once inventing an "as of my knowledge cutoff" disclaimer,
@@ -180,7 +198,7 @@ much better and measured, not solved. Details, including the trade-off
 prose), are in [`FINDINGS.md`](./FINDINGS.md)'s 2026-10-26 entries.
 
 Full breakdown, including *why* particular failures happened and what
-was tried, is in [`FINDINGS.md`](./FINDINGS.md) — a dated log covering
+was tried, is in [`FINDINGS.md`](./FINDINGS.md), a dated log covering
 distinct failure categories found during development: instruction
 overreach, structural SQL truncation, semantic type errors, silent
 NULL-as-extremum bugs, unreliable refusal behavior, entity-name guessing
@@ -193,7 +211,7 @@ Also compared `llama3.1:8b` (general-purpose) against
 `qwen2.5-coder:14b` (code-specialized) on identical questions.
 `qwen2.5-coder:14b` converged correctly on every case tested, including
 one where `llama3.1:8b` oscillated between two wrong SQL fixes without
-ever finding the right one. Full comparison in `FINDINGS.md` — this is
+ever finding the right one. Full comparison in `FINDINGS.md`. This is
 why `qwen2.5-coder:14b` is the default model, backed by measured evidence
 rather than a guess.
 
@@ -207,7 +225,7 @@ PROVIDER=anthropic MODEL=claude-sonnet-4-6 python3 -m exo_agent.graph "..."
 ## The data
 
 [NASA Exoplanet Archive](https://exoplanetarchive.ipac.caltech.edu/),
-PSCompPars table — every confirmed exoplanet and its host star (6,451
+PSCompPars table: every confirmed exoplanet and its host star (6,451
 planets across 4,847 stars as of the latest download), downloaded directly via NASA's public TAP API
 (`data/download_data.py`) and split into a two-table relational schema
 (`data/load_to_postgres.py`).
@@ -260,13 +278,14 @@ exo-agent/
 │   └── run_eval.py                   runs each question 5x, reports PASS RATES
 │
 ├── frontend/                        ← the live demo UI
-│   ├── server.py                     FastAPI backend — calls graph.py directly,
+│   ├── server.py                     FastAPI backend; calls graph.py directly,
 │   │                                 no separate/simplified agent logic
 │   ├── static/index.html             single-page UI: routing summary, full trace,
 │   │                                 sources, charts, topic browser
 │   └── README.md                     how to run the demo
 │
 ├── tests/                           ← deterministic unit tests, run by CI
+├── docs/screenshots/                ← the UI images used in this README
 ├── docker-compose.yml, docker/      ← local Postgres with pgvector + pg_trgm
 ├── Makefile                         ← setup / load / serve / test shortcuts
 │
@@ -344,12 +363,12 @@ Every change goes through a short-lived `updates/` or `fixes/` branch and a pull
   mode seen there)
 - Tell the insight writer the total row count, so a list truncated to the
   first 30 rows says so instead of reading as complete
-- Add cross-sub-question dependency handling — a sub-question like "how
-  does *this* planet compare to Earth" currently can't reference an
-  earlier sub-question's resolved entity/result, since each sub-question
-  runs independently
+- Pass results between sub-questions. A part that says "this planet"
+  is currently merged into the part it refers to (`merge_dependent_parts`
+  in `planner.py`), which works but loses the split; a real hand-off of
+  the resolved entity would keep both
 - Add observability (Langfuse) for real token-cost and latency tracking
   across runs, not just wall-clock timing
-- Extend the agent's tool set beyond SQL/retrieval — e.g. a real
+- Extend the agent's tool set beyond SQL/retrieval, e.g. a real
   web-search tool for questions neither the database nor the Wikipedia
   corpus can answer, with the agent deciding when to reach for it
