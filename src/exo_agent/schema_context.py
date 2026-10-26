@@ -27,7 +27,11 @@ TABLE: planets
   Columns:
     pl_name         TEXT PRIMARY KEY   -- planet name, e.g. 'Kepler-80 d'
     hostname        TEXT               -- FK to host_stars
-    discoverymethod TEXT               -- e.g. 'Transit', 'Radial Velocity', 'Imaging'
+    discoverymethod TEXT               -- one of a fixed set of labels: 'Transit', 'Radial
+                                          Velocity', 'Microlensing', 'Imaging', 'Transit
+                                          Timing Variations', ... Match with =, e.g.
+                                          discoverymethod = 'Transit' (ILIKE '%Transit%'
+                                          would also count 'Transit Timing Variations')
     disc_year       INTEGER            -- year of discovery. Can be NULL (1 row in ~6300).
     disc_facility   TEXT               -- observatory/mission, full names: 'Kepler', 'K2',
                                           'Transiting Exoplanet Survey Satellite (TESS)',

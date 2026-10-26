@@ -41,6 +41,7 @@ def test_executor_retries_with_the_hint_then_returns_rows(monkeypatch):
     rows = {bad: [], good: [{"pl_name": "TOI-1408 b"}]}
     monkeypatch.setattr(executor, "_run_query", lambda sql: (["pl_name"], rows[sql]))
     monkeypatch.setattr(executor, "_find_value_in_columns", fake_find)
+    monkeypatch.setattr(executor, "_discovery_methods", lambda: ("Transit", "Radial Velocity"))
 
     sent = []
 
