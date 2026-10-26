@@ -1317,6 +1317,48 @@ combined.
 
 ---
 
+## 2026-10-26: Loose discovery-method filter fixed; transit question 10/10
+
+Follow-up to the tier 4 entry above. The 4,814-vs-4,785 transit count
+came from `discoverymethod ILIKE '%Transit%'`, which also matches the 29
+"Transit Timing Variations" planets.
+
+**Two changes, same pattern as NULLS LAST:**
+
+- **Prompt (schema_context.py):** `discoverymethod` is now described as a
+  fixed set of labels to match with `=`, with this exact trap as the
+  example.
+- **Code (executor.py):** `exact_method_filter()` rewrites
+  `discoverymethod ILIKE '%Transit%'` to `discoverymethod = 'Transit'`
+  before the query runs. It only fires when the text inside the `%`s is
+  exactly one label (any case, with or without a table alias), so a real
+  partial match like `'%Timing%'` is left alone. The 11 labels are read
+  from the database once, and only when a query actually has such a
+  filter.
+
+**Tests:**
+
+- 6 unit tests (`tests/test_method_filter.py`, no database): the eval's
+  real query, case and alias, partial matches left alone, other columns
+  untouched, no label lookup when there's nothing to rewrite, and the
+  executor running the tightened query.
+- 1 database check in `tests/integration`: the loose and exact queries
+  now return the same count.
+
+**Live results (qwen2.5-coder:14b):**
+
+- `t4_count_and_concept` went from **3/5 to 10/10**.
+- Calling `write_sql` directly 6 times, the model now writes
+  `discoverymethod = 'Transit'` every time, so the schema note is doing
+  the work today and the rewrite is a backstop for when it doesn't.
+
+**Honest status:** the transit case is fixed and tested on both layers.
+The same kind of mistake could happen on other label columns
+(`disc_facility` values also contain each other, e.g. 'K2' in names);
+that isn't covered.
+
+---
+
 ## 2026-06-22 — Full eval suite results (qwen2.5-coder:14b, 5 runs/question)
 
 Completed tiers 2, 3, and 5 (tier 1 logged separately above).

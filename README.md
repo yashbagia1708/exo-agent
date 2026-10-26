@@ -170,9 +170,10 @@ October 2026 one (6,451):
 Tier 4 runs the whole agent (planner, every part, the stitched answer)
 on questions like "which planet is most Earth-like, and how far is it?".
 Splitting, routing and keeping dependent parts together held in every
-run; the 3 misses were SQL mistakes inside a part, e.g. `ILIKE
-'%Transit%'` also counting "Transit Timing Variations" planets (details
-in [`FINDINGS.md`](./FINDINGS.md)).
+run; the 3 misses were SQL mistakes inside a part. Two came from `ILIKE
+'%Transit%'` also counting "Transit Timing Variations" planets; after an
+exact-match fix (prompt plus a code rewrite) that question went from 3/5
+to 10/10. Details in [`FINDINGS.md`](./FINDINGS.md).
 
 The tier 5 number is the most important one, and it's the one I'd flag
 first in an interview rather than hide: **the question "which planet has
@@ -370,8 +371,6 @@ Every change goes through a short-lived `updates/` or `fixes/` branch and a pull
   5-run pass rate is tracked across future changes, and add a check that
   flags an answer contradicting its own caveat (the one remaining failure
   mode seen there)
-- Fix the loose `discoverymethod ILIKE '%Transit%'` filter found by the
-  tier 4 eval (it also counts "Transit Timing Variations")
 - Tell the insight writer the total row count, so a list truncated to the
   first 30 rows says so instead of reading as complete
 - Pass results between sub-questions. A part that says "this planet"
