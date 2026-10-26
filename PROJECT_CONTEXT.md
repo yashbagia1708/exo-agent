@@ -69,7 +69,7 @@ exo-agent/
 │               entity_resolver, insight_writer)
 ├── data/ (download_data.py, load_to_postgres.py, download_wiki_corpus.py,
 │          load_wiki_to_postgres.py, data_quality_notes.md, RAG_SETUP.md)
-├── eval/ (questions.jsonl — 14 questions across 5 tiers, run_eval.py)
+├── eval/ (questions.jsonl — 20 questions across 5 tiers, run_eval.py)
 ├── tests/ (test_sql_validator.py, test_synthesizer.py)
 └── frontend/ (server.py, static/index.html)
 ```

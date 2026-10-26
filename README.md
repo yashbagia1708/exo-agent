@@ -155,15 +155,24 @@ fixed pipeline that always runs both.
 
 ## results
 
-Run against `qwen2.5-coder:14b` (local, free, via Ollama), on the June
-2026 data snapshot (6,298 planets):
+Run against `qwen2.5-coder:14b` (local, free, via Ollama). Tiers 1-3 and
+5 were run on the June 2026 snapshot (6,298 planets), tier 4 on the
+October 2026 one (6,451):
 
 | Tier | What it tests | Pass rate |
 |---|---|---|
 | 1: basic lookups | Simple counts, filters, ORDER BY | 22/25 (88%) |
 | 2: joins & aggregation | Multi-table joins, GROUP BY | 17/20 (85%) |
 | 3: time trends | Chart-worthy trend questions | 10/10 (100%) |
+| 4: compound & dependent | Multi-part questions through the whole graph | 27/30 (90%) |
 | 5: limits & refusal | Should the agent decline/caveat? | 10/15 (67%) |
+
+Tier 4 runs the whole agent (planner, every part, the stitched answer)
+on questions like "which planet is most Earth-like, and how far is it?".
+Splitting, routing and keeping dependent parts together held in every
+run; the 3 misses were SQL mistakes inside a part, e.g. `ILIKE
+'%Transit%'` also counting "Transit Timing Variations" planets (details
+in [`FINDINGS.md`](./FINDINGS.md)).
 
 The tier 5 number is the most important one, and it's the one I'd flag
 first in an interview rather than hide: **the question "which planet has
@@ -274,7 +283,7 @@ exo-agent/
 │   └── README.md                     step-by-step setup for the structured-data layer
 │
 ├── eval/                            ← the evaluation harness
-│   ├── questions.jsonl               hand-written test questions across 5 difficulty tiers
+│   ├── questions.jsonl               hand-written test questions across 5 tiers
 │   └── run_eval.py                   runs each question 5x, reports PASS RATES
 │
 ├── frontend/                        ← the live demo UI
@@ -361,6 +370,8 @@ Every change goes through a short-lived `updates/` or `fixes/` branch and a pull
   5-run pass rate is tracked across future changes, and add a check that
   flags an answer contradicting its own caveat (the one remaining failure
   mode seen there)
+- Fix the loose `discoverymethod ILIKE '%Transit%'` filter found by the
+  tier 4 eval (it also counts "Transit Timing Variations")
 - Tell the insight writer the total row count, so a list truncated to the
   first 30 rows says so instead of reading as complete
 - Pass results between sub-questions. A part that says "this planet"
