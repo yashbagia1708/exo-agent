@@ -833,7 +833,7 @@ function renderResult(data) {
     ${(data.sources || []).length ? `<div class="sources">${data.sources.map((url) =>
         `<a class="source" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${ICONS.link}${esc(sourceTitle(url))}</a>`).join('')}</div>` : ''}
     <div class="meta">
-      ${data.row_count != null ? `<span class="pill"><b>${data.row_count.toLocaleString()}</b> rows</span>` : ''}
+      ${data.row_count != null ? `<span class="pill"><b>${data.row_count.toLocaleString()}</b> ${data.row_count === 1 ? 'row' : 'rows'}</span>` : ''}
       ${data.sub_question_count > 1 ? `<span class="pill"><b>${data.sub_question_count}</b> parts</span>` : ''}
       <span class="pill"><b>${data.elapsed_seconds.toFixed(1)}s</b></span>
       <span class="pill">${esc((data.model_used.match(/model=(\S+)/) || [])[1] || data.model_used)}</span>
