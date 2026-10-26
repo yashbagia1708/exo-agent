@@ -10,6 +10,9 @@ does the answer decline. No LLM judge.
     python3 eval/run_eval.py --runs 3              # quicker, rougher
     python3 eval/run_eval.py --tier 1              # one tier
     python3 eval/run_eval.py --id t1_total_count   # one question
+
+Tiers: 1 lookups, 2 joins/aggregation, 3 trends (charts), 4 compound and
+dependent questions (whole graph), 5 limits and refusal.
 """
 
 import argparse
@@ -25,11 +28,20 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from exo_agent import config
+from exo_agent.graph import ask
 from exo_agent.nodes.executor import execute_sql
 from exo_agent.nodes.insight_writer import write_insight
 from exo_agent.nodes.sql_writer import write_sql
 
 QUESTIONS_PATH = pathlib.Path(__file__).parent / "questions.jsonl"
+
+# any of these (or a caveat) counts as the answer hedging
+HEDGE_PHRASES = [
+    "not available", "no data", "cannot", "can't", "not measured",
+    "not directly", "doesn't measure", "does not measure", "proxy",
+    "no column", "not in the dataset", "this data", "the dataset",
+    "no direct", "isn't measured", "is not measured",
+]
 
 
 @dataclass
@@ -106,12 +118,6 @@ def _check_behavior_stage(spec: dict) -> RunResult:
                                   a caveat on a confident answer isn't enough
     """
     start = time.time()
-    HEDGE_PHRASES = [
-        "not available", "no data", "cannot", "can't", "not measured",
-        "not directly", "doesn't measure", "does not measure", "proxy",
-        "no column", "not in the dataset", "this data", "the dataset",
-        "no direct", "isn't measured", "is not measured",
-    ]
     DECLINE_PHRASES = [
         "cannot determine", "can't determine", "no data", "not possible to",
         "no way to", "not something", "doesn't tell us", "does not tell us",
@@ -177,6 +183,54 @@ def _check_insight_stage(spec: dict) -> RunResult:
     return RunResult(True, f"answer={result.answer!r} caveat={result.caveat!r}", elapsed)
 
 
+def _check_graph_stage(spec: dict) -> RunResult:
+    """
+    Whole graph (planner -> sub-questions -> synthesizer), for tier 4.
+
+        expected_parts       how many sub-questions after the planner, e.g.
+                             2 for "X, and also Y", 1 when a part says "it"
+        expected_routes      per part: "sql" or "retrieval" must be switched on
+        answer_must_include  groups of alternatives; each group needs one hit
+                             (commas are stripped first, so 4,785 == 4785)
+        expect_caveat        caveat set, or a hedge phrase in the answer
+    """
+    start = time.time()
+    try:
+        state = ask(spec["question"])
+    except Exception as e:
+        return RunResult(False, f"graph raised: {e}", time.time() - start)
+    elapsed = time.time() - start
+
+    parts = state["decomposition"].sub_questions if state.get("decomposition") else []
+    insight = state.get("final_insight")
+    failures = []
+
+    if "expected_parts" in spec and len(parts) != spec["expected_parts"]:
+        failures.append(f"expected {spec['expected_parts']} part(s), got {len(parts)}: {[p.text for p in parts]}")
+    elif "expected_routes" in spec:
+        for i, (part, route) in enumerate(zip(parts, spec["expected_routes"]), 1):
+            if not getattr(part, f"needs_{route}"):
+                failures.append(f"part {i} not routed to {route}")
+
+    if not insight:
+        failures.append(f"no answer: {state.get('error')}")
+    else:
+        text = f"{insight.answer} {insight.caveat or ''}".replace(",", "").lower()
+        for group in spec.get("answer_must_include", []):
+            if not any(alt.replace(",", "").lower() in text for alt in group):
+                failures.append(f"answer missing any of {group}")
+        if spec.get("expect_caveat") and not (insight.caveat or any(p in text for p in HEDGE_PHRASES)):
+            failures.append("expected a caveat or hedge")
+
+    # keep the SQL that ran, so a failed run shows where it went wrong
+    sqls = [r["execution_result"].sql_used for r in state.get("sub_results", []) if r.get("execution_result")]
+    detail = f"answer={insight.answer!r} caveat={insight.caveat!r}" if insight else ""
+    detail += "".join(f" sql={q!r}" for q in sqls)
+    if failures:
+        return RunResult(False, "; ".join(failures) + (f" | {detail}" if detail else ""), elapsed)
+    return RunResult(True, detail, elapsed)
+
+
 def run_question(spec: dict, num_runs: int) -> QuestionReport:
     report = QuestionReport(
         question_id=spec["id"], tier=spec["tier"], question_text=spec["question"]
@@ -187,6 +241,8 @@ def run_question(spec: dict, num_runs: int) -> QuestionReport:
     for i in range(num_runs):
         if stage == "insight_writer":
             result = _check_insight_stage(spec)
+        elif stage == "graph":
+            result = _check_graph_stage(spec)
         elif spec.get("expected_behavior"):
             result = _check_behavior_stage(spec)
         else:
