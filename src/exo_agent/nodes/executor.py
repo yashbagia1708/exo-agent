@@ -7,10 +7,15 @@ This catches what only the database can see:
     missing columns, bad joins -> Postgres's message goes back to the model
   - 0 rows from a filter on the wrong column (discoverymethod ILIKE
     '%TESS%') -> we look the value up and send back where it really is
+
+Before running, two rewrites the prompt can't be trusted with: DESC gets
+NULLS LAST, and a substring filter naming an exact discovery method
+becomes an exact match.
 """
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 import psycopg2
 import psycopg2.extras
@@ -32,6 +37,8 @@ TEXT_COLUMNS = [
 ]
 # col = 'x' / col ILIKE '%x%' / p.col LIKE 'x'  ->  (col, op, 'x')
 TEXT_FILTER = re.compile(r"(?:\w+\.)?(\w+)\s+(=|I?LIKE)\s+'((?:[^']|'')*)'", re.IGNORECASE)
+# p.discoverymethod ILIKE '%Transit%'  ->  ('p.', '%Transit%')
+METHOD_SUBSTRING = re.compile(r"((?:\w+\.)?)discoverymethod\s+I?LIKE\s+'((?:[^']|'')*)'", re.IGNORECASE)
 
 REPAIR_SYSTEM_PROMPT = """You are a careful SQL analyst working with a PostgreSQL \
 database of confirmed exoplanets. Your previous query failed when actually \
@@ -94,6 +101,43 @@ def nulls_last(sql: str) -> str:
     for i in range(0, len(parts), 2):
         parts[i] = re.sub(r"\bDESC\b(?!\s+NULLS)", lambda m: m.group(0) + " NULLS LAST", parts[i], flags=re.IGNORECASE)
     return "".join(parts)
+
+
+@lru_cache(maxsize=1)
+def _discovery_methods() -> tuple[str, ...]:
+    """The 11 labels, e.g. ('Transit', 'Radial Velocity', ...). Read once."""
+    conn = psycopg2.connect(config.DB_DSN)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT discoverymethod FROM planets WHERE discoverymethod IS NOT NULL")
+            return tuple(r[0] for r in cur.fetchall())
+    finally:
+        conn.close()
+
+
+def exact_method_filter(sql: str, labels=None) -> str:
+    """
+    "discoverymethod ILIKE '%Transit%'" -> "discoverymethod = 'Transit'"
+
+    discoverymethod is a fixed set of labels, and 'Transit' is a substring
+    of 'Transit Timing Variations', so the ILIKE counted 4,814 transit
+    planets instead of 4,785 (FINDINGS.md, tier 4 eval). Only rewrites when
+    the text inside the %s is exactly one label (any case); a real partial
+    match like '%Timing%' is left alone.
+    """
+    if not METHOD_SUBSTRING.search(sql):
+        return sql  # nothing to do, and no database round trip
+    labels = _discovery_methods() if labels is None else labels
+    by_lower = {label.lower(): label for label in labels}
+
+    def tighten(m):
+        prefix, raw = m.group(1), m.group(2)
+        label = by_lower.get(raw.replace("''", "'").strip("%").strip().lower())
+        if label is None:
+            return m.group(0)
+        return f"{prefix}discoverymethod = '{label.replace(chr(39), chr(39) * 2)}'"
+
+    return METHOD_SUBSTRING.sub(tighten, sql)
 
 
 def _find_value_in_columns(value: str) -> list[tuple[str, str, int, str]]:
@@ -163,7 +207,7 @@ def execute_sql(sql: str, question: str, max_repair_attempts: int | None = None)
     repair_notes: list[str] = []
 
     for attempt in range(max_repair_attempts + 1):
-        current_sql = nulls_last(current_sql)
+        current_sql = exact_method_filter(nulls_last(current_sql))
         try:
             columns, rows = _run_query(current_sql)
         except psycopg2.Error as e:

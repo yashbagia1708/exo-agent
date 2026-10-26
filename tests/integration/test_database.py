@@ -76,3 +76,12 @@ def test_largest_planet_is_never_a_missing_radius():
     assert result.success and result.repair_attempts == 0
     assert result.rows[0]["pl_rade"] is not None
     assert "NULLS LAST" in result.sql_used
+
+
+def test_transit_count_excludes_transit_timing_variations():
+    from exo_agent.nodes.executor import execute_sql
+
+    loose = execute_sql("SELECT COUNT(*) AS n FROM planets WHERE discoverymethod ILIKE '%Transit%'", "transit count")
+    exact = execute_sql("SELECT COUNT(*) AS n FROM planets WHERE discoverymethod = 'Transit'", "transit count")
+    assert "discoverymethod = 'Transit'" in loose.sql_used
+    assert loose.rows == exact.rows
