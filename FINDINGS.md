@@ -1255,6 +1255,68 @@ real empty result.
 
 ---
 
+## 2026-10-26: Tier 4 eval added (compound and dependent questions), 27/30 (90%)
+
+The eval skipped from tier 3 to tier 5: no tier 4 questions had ever been
+written. The tiers 1-3 checks also call `write_sql` directly, so nothing
+in the eval went through the planner or the synthesizer, which is where
+most of this week's fixes landed. Tier 4 fills that gap: six questions,
+each run 5 times through the whole graph (`ask()`), with a new
+`stage: "graph"` check in `eval/run_eval.py` that looks at:
+
+- how many parts the planner produced (2 for "X, and also Y"; 1 when a
+  part says "it" or "this planet")
+- which source each part was routed to
+- whether the final answer contains the right values, taken from
+  hand-written queries against the current snapshot
+
+```
+t4_count_and_concept               3/5   count (SQL) + concept (Wikipedia)
+t4_two_sql_parts                   5/5   TRAPPIST-1 count + largest planet
+t4_dependent_earth_like_distance   5/5   Teegarden's Star b, 3.83 pc
+t4_dependent_star_spectral         5/5   KOI-351, spectral type not recorded
+t4_dependent_this_planet           4/5   TOI-1408 b, 2023
+t4_missing_column_plus_count       5/5   caveat + 1,204 RV planets
+Overall                           27/30 (90%)
+```
+
+**What held:** splitting and routing were right in 30/30 runs, and the
+dependent questions stayed as one part in 15/15 (the
+`merge_dependent_parts` fix, now measured over more than one question).
+The stitched answers kept both halves every time. The "trap" question
+(KOI-351 has 8 planets but no spectral type in the archive) said so in
+5/5 instead of borrowing a type from another star.
+
+**Failure 1, 2/5 on the transit count: a wrong filter, not a
+hallucination.** Both runs said 4,814 planets instead of 4,785. The SQL
+used `discoverymethod ILIKE '%Transit%'`, which also matches the 29
+"Transit Timing Variations" planets (4,785 + 29 = 4,814). The number came
+honestly from the rows; the filter was too loose. The schema note tells
+the model to use ILIKE for `disc_facility`, where values are long names,
+and it seems to be carrying that over to `discoverymethod`, where the
+values are exact labels. Not fixed yet; the likely fix is an explicit
+"exact match on discoverymethod" rule plus a unit-tested check that warns
+when a substring filter on a label column matches more than one label.
+
+**Failure 2, 1/5 on the TESS question: the wrong planet.** One run
+answered "TOI-5422 b, discovered in 2026". That's a real TESS planet, but
+it's 9.1 Earth radii against TOI-1408 b's 25, so the query wasn't
+ordering by radius. The harness didn't save the SQL for that run, so the
+cause is a guess (most likely it ordered by discovery year, since the
+question also asks "when"). The graph-stage check now records the SQL of
+every part, so the next failure will show it.
+
+**One thing that passed but is worth noting:** in one TRAPPIST run the
+model put `WHERE` after `LIMIT`; the repair loop fixed it from Postgres's
+error message and the answer was right.
+
+**Honest status:** 90% on the agent's multi-part behavior, with the
+planner and synthesizer fixes holding. The remaining misses are
+SQL-writing mistakes in the parts, not in how parts are split or
+combined.
+
+---
+
 ## 2026-06-22 — Full eval suite results (qwen2.5-coder:14b, 5 runs/question)
 
 Completed tiers 2, 3, and 5 (tier 1 logged separately above).
