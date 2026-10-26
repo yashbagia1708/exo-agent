@@ -1,0 +1,65 @@
+# Shared setup for the workflows that need a real database:
+# install the project, enable the Postgres extensions, pull the Ollama
+# models, then download and load the data.
+#
+# Expects the job to run `postgres` (pgvector/pgvector:pg16) and, unless
+# load-wiki is "false", `ollama` (ollama/ollama) service containers, with
+# DB_DSN and OLLAMA_BASE_URL set in the job env.
+name: load-data
+description: Install exo-agent, load NASA planets (and the wiki corpus) into the job's Postgres
+
+inputs:
+  models:
+    description: Space-separated Ollama models to pull
+    default: nomic-embed-text
+  load-wiki:
+    description: Embed and load the Wikipedia corpus (needs Ollama)
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install
+      shell: bash
+      run: pip install -e ".[dev]"
+
+    - name: Enable pgvector and pg_trgm (same script as docker-compose)
+      shell: bash
+      run: |
+        python - <<'PY'
+        import os, psycopg2
+        conn = psycopg2.connect(os.environ["DB_DSN"])
+        conn.autocommit = True
+        conn.cursor().execute(open("docker/init.sql").read())
+        PY
+
+    - name: Pull Ollama models
+      if: inputs.load-wiki == 'true'
+      shell: bash
+      env:
+        MODELS: ${{ inputs.models }}
+      run: |
+        api="${OLLAMA_BASE_URL%/v1}"
+        for model in $MODELS; do
+          echo "pulling $model"
+          curl -sf "$api/api/pull" -d "{\"model\": \"$model\", \"stream\": false}" > /dev/null
+        done
+
+    - name: Download the NASA Exoplanet Archive table
+      shell: bash
+      run: python data/download_data.py
+
+    - name: Load planets and host stars
+      shell: bash
+      run: python data/load_to_postgres.py
+
+    - name: Embed and load the wiki corpus
+      if: inputs.load-wiki == 'true'
+      shell: bash
+      run: python data/load_wiki_to_postgres.py

@@ -23,6 +23,7 @@ from exo_agent import config
 WIKI_CORPUS_DIR = pathlib.Path(__file__).parent / "wiki_corpus"
 EMBED_MODEL = "nomic-embed-text"
 EMBED_DIM = 768  # nomic-embed-text output size
+EMBED_BATCH = 32  # chunks per embedding request
 
 SCHEMA_SQL = """
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -56,9 +57,9 @@ CREATE INDEX idx_wiki_chunks_embedding
 """
 
 
-def get_embedding(text: str) -> list[float]:
-    """text -> 768 floats from Ollama's /api/embed (plain HTTP; instructor is for chat only)."""
-    payload = json.dumps({"model": EMBED_MODEL, "input": text}).encode("utf-8")
+def get_embeddings(texts: list[str]) -> list[list[float]]:
+    """texts -> 768 floats each, from Ollama's /api/embed (plain HTTP; instructor is for chat only)."""
+    payload = json.dumps({"model": EMBED_MODEL, "input": texts}).encode("utf-8")
     req = urllib.request.Request(
         f"{config.OLLAMA_BASE_URL.replace('/v1', '')}/api/embed",
         data=payload,
@@ -66,9 +67,10 @@ def get_embedding(text: str) -> list[float]:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        # long timeout: a batch on a 2-CPU CI runner can take a minute
+        with urllib.request.urlopen(req, timeout=300) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            return data["embeddings"][0]
+            return data["embeddings"]
     except urllib.error.URLError as e:
         raise RuntimeError(
             f"Could not reach Ollama's embedding endpoint at {req.full_url}. "
@@ -126,17 +128,21 @@ def main():
         )
         sys.exit(1)
 
-    print("Embedding and inserting chunks (this calls Ollama once per chunk -- may take a bit)...")
+    print(f"Embedding and inserting chunks ({EMBED_BATCH} per Ollama call)...")
     inserted = 0
     for record in records:
-        for i, chunk in enumerate(record["chunks"]):
+        chunks = record["chunks"]
+        embeddings = []
+        # one call per batch, not per chunk: ~1.4s per chunk one at a time on a CI runner
+        for start in range(0, len(chunks), EMBED_BATCH):
             try:
-                embedding = get_embedding(chunk)
+                embeddings += get_embeddings(chunks[start:start + EMBED_BATCH])
             except RuntimeError as e:
-                print(f"  ERROR embedding chunk {i} of '{record['title']}': {e}", file=sys.stderr)
+                print(f"  ERROR embedding chunks of '{record['title']}': {e}", file=sys.stderr)
                 conn.rollback()
                 sys.exit(1)
 
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
             cur.execute(
                 """
                 INSERT INTO wiki_chunks (title, source_url, chunk_index, content, embedding)

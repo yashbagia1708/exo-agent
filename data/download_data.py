@@ -50,6 +50,7 @@ OUTPUT_PATH = pathlib.Path(__file__).parent / "raw_pscomppars.csv"
 
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
+REQUEST_TIMEOUT_SECONDS = 180
 
 
 def build_query() -> str:
@@ -72,15 +73,17 @@ def fetch_csv() -> str:
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            # NASA builds the CSV on request; it can take well over a minute
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
                 if resp.status != 200:
                     raise RuntimeError(f"HTTP {resp.status}")
                 return resp.read().decode("utf-8")
-        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as e:
+        # a slow read raises TimeoutError, not URLError; it used to skip the retries
+        except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as e:
             last_error = e
             print(f"Attempt {attempt}/{MAX_RETRIES} failed: {e}")
             if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY_SECONDS)
+                time.sleep(RETRY_DELAY_SECONDS * attempt)  # 5s, 10s, ...
 
     raise RuntimeError(f"All {MAX_RETRIES} attempts failed. Last error: {last_error}")
 
