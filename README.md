@@ -10,6 +10,11 @@ verifies named entities against real data instead of guessing, decides
 whether a chart would help, and answers in plain English, grounded
 strictly in what the data and retrieved sources actually show.
 
+[![exo-agent splitting a two-part question into a database part and a Wikipedia part, with each step shown as it runs](docs/walkthrough-preview.gif)](docs/walkthrough.mp4)
+
+**[▶ Watch the 90-second walkthrough](docs/walkthrough.mp4)**: three real
+questions on the running app, then how to start it yourself.
+
 Built to learn agentic AI patterns properly: multi-step decomposition,
 tool routing, RAG/hybrid retrieval, tool-call repair loops, structured
 outputs, and an evaluation-first mindset, rather than a single
@@ -295,7 +300,7 @@ exo-agent/
 │   └── README.md                     how to run the demo
 │
 ├── tests/                           ← deterministic unit tests, run by CI
-├── docs/screenshots/                ← the UI images used in this README
+├── docs/                            ← screenshots, the walkthrough video and its preview GIF
 ├── docker-compose.yml, docker/      ← local Postgres with pgvector + pg_trgm
 ├── Makefile                         ← setup / load / serve / test shortcuts
 │
